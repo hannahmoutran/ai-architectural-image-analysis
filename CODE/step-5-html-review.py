@@ -3,7 +3,7 @@
 Step 5: Create Interactive HTML Review Interface for Architectural Drawings
 ============================================================================
 
-Generates a local HTML review interface allowing catalogers to:
+Generates a local HTML review interface allowing archivists to:
 - View architectural drawing images alongside AI-generated metadata
 - Edit all AI-generated fields (OCR, title, description, subjects, entities, etc.)
 - Approve/reject/edit controlled vocabulary terms
@@ -963,14 +963,14 @@ class HTMLReviewBuilder:
         }}
 
         function exportDecisions() {{
-            let catalogerName = getStorage('reviewer-name', null);
-            if (!catalogerName) {{
-                catalogerName = prompt('Enter your name for the export:');
-                if (catalogerName && catalogerName.trim()) {{
-                    setStorage('reviewer-name', catalogerName.trim());
+            let archivistName = getStorage('reviewer-name', null);
+            if (!archivistName) {{
+                archivistName = prompt('Enter your name for the export:');
+                if (archivistName && archivistName.trim()) {{
+                    setStorage('reviewer-name', archivistName.trim());
                 }}
             }}
-            if (!catalogerName) return;
+            if (!archivistName) return;
 
             const totalRecords = parseInt(document.body.dataset.totalRecords || '0');
             const decisions = [];
@@ -995,7 +995,7 @@ class HTMLReviewBuilder:
                         term_decisions: termDecisions,
                         custom_terms: customTerms,
                         custom_subjects: customSubjects,
-                        cataloger_notes: notes
+                        archivist_notes: notes
                     }});
                 }}
             }}
@@ -1008,7 +1008,7 @@ class HTMLReviewBuilder:
             const exportData = {{
                 export_timestamp: new Date().toISOString(),
                 workflow_folder: WORKFLOW_FOLDER,
-                cataloger_name: catalogerName,
+                archivist_name: archivistName,
                 total_records: totalRecords,
                 reviewed_count: decisions.filter(d => d.reviewed).length,
                 decisions: decisions
@@ -1018,7 +1018,7 @@ class HTMLReviewBuilder:
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'cataloger-decisions-' + new Date().toISOString().split('T')[0] + '.json';
+            a.download = 'archivist-decisions-' + new Date().toISOString().split('T')[0] + '.json';
             document.body.appendChild(a);
             a.click();
             setTimeout(() => {{
@@ -1357,7 +1357,7 @@ class HTMLReviewBuilder:
         # Actions section
         html += f'''
             <div class="notes-section">
-                <div class="field-label">Cataloger Notes</div>
+                <div class="field-label">Archivist Notes</div>
                 <textarea class="field-input" id="notes-{global_id}"
                     placeholder="Add notes about this record..."
                     oninput="saveNotes({global_id}, this.value)"></textarea>

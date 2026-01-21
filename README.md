@@ -13,12 +13,12 @@ Developed at the University of Texas at Austin Libraries for the Alexander Archi
 - **Multi-provider support**: Choose between OpenAI, Anthropic Claude, or Google Gemini for AI processing
 - **Controlled vocabulary integration**: Automatically searches and selects terms from LCSH, FAST, Getty AAT, and Getty TGN
 - **Batch processing**: Handles large collections with automatic cost optimization
-- **HTML review interface**: Web-based cataloger review of AI-generated metadata
+- **HTML review interface**: Web-based archivist review of AI-generated metadata
 - **Entity extraction**: Identifies architects, firms, buildings, and geographic locations
 
 ## Workflow
 
-The pipeline consists of 5 steps:
+The pipeline consists of 6 steps:
 
 | Step | Description | Provider |
 |------|-------------|----------|
@@ -27,7 +27,8 @@ The pipeline consists of 5 steps:
 | 2 | **Vocabulary Lookup** - Search LCSH, FAST, Getty AAT/TGN for matching terms | APIs only |
 | 3 | **Vocabulary Selection** - AI selects best terms from search results | OpenAI/Claude/Gemini |
 | 4 | **Entity Report** - Compile named entity authority file | Local processing |
-| 5 | **HTML Review** - Generate cataloger review interface | Local processing |
+| 5 | **HTML Review** - Generate archivist review interface | Local processing |
+| 6 | **Integrate Edits** - Apply archivist edits back to workflow files | Local processing |
 
 ## Installation
 
@@ -89,7 +90,7 @@ The pipeline generates:
 - **Excel workbooks** with extracted metadata and thumbnails
 - **JSON files** with structured data for programmatic access
 - **Text reports** including vocabulary mappings and entity lists
-- **HTML review interface** for cataloger verification
+- **HTML review interface** for archivist verification
 
 ## Controlled Vocabularies
 

@@ -73,6 +73,10 @@ def run_step(step_num, env_overrides=None):
         script_name = "step-5-html-review.py"
         step_desc = "HTML Review Interface"
 
+    elif step_num == 6:
+        script_name = "step-6-integrate-archivist-edits.py"
+        step_desc = "Integrate Archivist Edits"
+
     else:
         print(f"Unknown step: {step_num}")
         return False
@@ -125,15 +129,16 @@ def interactive_menu():
     print("  2. Step 2: Vocabulary Lookup (LCSH, FAST, Getty terms)")
     print("  3. Step 3: Vocabulary Selection (AI-powered term selection)")
     print("  4. Step 4: Entity Report Creation")
-    print("  5. Step 5: HTML Review Interface (cataloger review)")
+    print("  5. Step 5: HTML Review Interface (archivist review)")
+    print("  6. Step 6: Integrate Archivist Edits")
     print()
-    print("  A. Run ALL steps (1-5)")
+    print("  A. Run ALL steps (1-6)")
     print("  C. Show/edit configuration")
     print("  Q. Quit")
     print()
 
     while True:
-        choice = input("Enter choice (1-5, A, C, or Q): ").strip().lower()
+        choice = input("Enter choice (1-6, A, C, or Q): ").strip().lower()
 
         if choice == 'q':
             print("Goodbye!")
@@ -143,18 +148,18 @@ def interactive_menu():
             print("\nEdit config.py to change settings, then restart.\n")
             continue
         elif choice == 'a':
-            return [1, 2, 3, 4, 5]
-        elif choice in ['1', '2', '3', '4', '5']:
+            return [1, 2, 3, 4, 5, 6]
+        elif choice in ['1', '2', '3', '4', '5', '6']:
             return [int(choice)]
         elif ',' in choice or ' ' in choice:
             # Allow multiple steps like "1,2,3" or "1 2 3"
             try:
                 steps = [int(s.strip()) for s in choice.replace(',', ' ').split()]
-                if all(1 <= s <= 5 for s in steps):
+                if all(1 <= s <= 6 for s in steps):
                     return steps
             except ValueError:
                 pass
-            print("Invalid input. Enter step numbers 1-5.")
+            print("Invalid input. Enter step numbers 1-6.")
         else:
             print("Invalid choice. Try again.")
 
@@ -173,7 +178,7 @@ Examples:
     )
 
     parser.add_argument('steps', nargs='*',
-                        help='Steps to run (1, 2, 3, 4, or "all")')
+                        help='Steps to run (1-6 or "all")')
     parser.add_argument('--config', '-c', action='store_true',
                         help='Show current configuration and exit')
 
@@ -187,12 +192,12 @@ Examples:
     # Determine which steps to run
     if args.steps:
         if 'all' in [s.lower() for s in args.steps]:
-            steps_to_run = [1, 2, 3, 4, 5]
+            steps_to_run = [1, 2, 3, 4, 5, 6]
         else:
             try:
                 steps_to_run = [int(s) for s in args.steps]
-                if not all(1 <= s <= 5 for s in steps_to_run):
-                    print("Error: Steps must be 1, 2, 3, 4, or 5")
+                if not all(1 <= s <= 6 for s in steps_to_run):
+                    print("Error: Steps must be 1, 2, 3, 4, 5, or 6")
                     return 1
             except ValueError:
                 print("Error: Invalid step number")
