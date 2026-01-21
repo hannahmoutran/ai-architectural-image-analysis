@@ -534,11 +534,33 @@ class HTMLReviewBuilder:
             return keys;
         }}
 
+        function promptForReviewerName() {{
+            let reviewerName = getStorage('reviewer-name', null);
+            if (!reviewerName) {{
+                reviewerName = prompt('Welcome! Please enter your name (this will be saved for this review session):');
+                if (reviewerName && reviewerName.trim()) {{
+                    setStorage('reviewer-name', reviewerName.trim());
+                }}
+            }}
+            return reviewerName;
+        }}
+
+        function autoMarkReviewed(recordId) {{
+            // Automatically mark record as reviewed when any edit is made
+            const reviewedCheckbox = document.getElementById('reviewed-' + recordId);
+            if (reviewedCheckbox && !reviewedCheckbox.checked) {{
+                reviewedCheckbox.checked = true;
+                setStorage('reviewed-' + recordId, true);
+                updateProgress();
+            }}
+        }}
+
         function saveFieldValue(recordId, fieldName, value, originalValue) {{
             const edits = getStorage('edits-' + recordId, {{}});
 
             if (value !== originalValue) {{
                 edits[fieldName] = {{ value: value, original: originalValue, edited: true }};
+                autoMarkReviewed(recordId);
             }} else {{
                 delete edits[fieldName];
             }}
@@ -603,8 +625,10 @@ class HTMLReviewBuilder:
             }});
 
             const edits = getStorage('edits-' + recordId, {{}});
-            edits['contributors'] = {{ value: contributors, edited: true }};
+            const originalContribs = getStorage('original-contributors-' + recordId, null);
+            edits['contributors'] = {{ value: contributors, original: originalContribs, edited: true }};
             setStorage('edits-' + recordId, edits);
+            autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -631,8 +655,10 @@ class HTMLReviewBuilder:
             }});
 
             const edits = getStorage('edits-' + recordId, {{}});
-            edits[fieldName] = {{ value: values, edited: true }};
+            const originalValues = getStorage('original-' + fieldName + '-' + recordId, null);
+            edits[fieldName] = {{ value: values, original: originalValues, edited: true }};
             setStorage('edits-' + recordId, edits);
+            autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -684,6 +710,7 @@ class HTMLReviewBuilder:
                     }}
                 }}
             }}
+            autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -735,6 +762,7 @@ class HTMLReviewBuilder:
             addForm.insertAdjacentHTML('beforebegin', subjectHtml);
 
             input.value = '';
+            autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -784,6 +812,7 @@ class HTMLReviewBuilder:
 
             labelInput.value = '';
             uriInput.value = '';
+            autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -817,10 +846,54 @@ class HTMLReviewBuilder:
             }}
         }}
 
+        function storeOriginalListValues(recordId) {{
+            // Store original values for list fields (for tracking deletions)
+            const listFields = ['named_entities', 'geographic_entities'];
+            listFields.forEach(fieldName => {{
+                const storageKey = 'original-' + fieldName + '-' + recordId;
+                if (getStorage(storageKey, null) === null) {{
+                    const container = document.getElementById(fieldName + '-' + recordId);
+                    if (container) {{
+                        const items = container.querySelectorAll('.list-item input');
+                        const values = [];
+                        items.forEach(input => {{
+                            const val = input.value.trim();
+                            if (val) values.push(val);
+                        }});
+                        setStorage(storageKey, values);
+                    }}
+                }}
+            }});
+
+            // Store original contributors
+            const contribKey = 'original-contributors-' + recordId;
+            if (getStorage(contribKey, null) === null) {{
+                const container = document.getElementById('contributors-' + recordId);
+                if (container) {{
+                    const items = container.querySelectorAll('.contributor-item');
+                    const contributors = [];
+                    items.forEach(item => {{
+                        const name = item.querySelector('.contrib-name').value.trim();
+                        const role = item.querySelector('.contrib-role').value.trim();
+                        if (name) {{
+                            contributors.push({{ name, role }});
+                        }}
+                    }});
+                    setStorage(contribKey, contributors);
+                }}
+            }}
+        }}
+
         function restoreState() {{
+            // Prompt for reviewer name on first load
+            promptForReviewerName();
+
             // Restore edits, reviewed status, term decisions for all records on this page
             document.querySelectorAll('.record').forEach(record => {{
                 const recordId = parseInt(record.id.replace('record-', ''));
+
+                // Store original values for list fields FIRST (before any edits are restored)
+                storeOriginalListValues(recordId);
 
                 // Restore field edits
                 const edits = getStorage('edits-' + recordId, {{}});
@@ -890,7 +963,13 @@ class HTMLReviewBuilder:
         }}
 
         function exportDecisions() {{
-            const catalogerName = prompt('Enter your name for the export:');
+            let catalogerName = getStorage('reviewer-name', null);
+            if (!catalogerName) {{
+                catalogerName = prompt('Enter your name for the export:');
+                if (catalogerName && catalogerName.trim()) {{
+                    setStorage('reviewer-name', catalogerName.trim());
+                }}
+            }}
             if (!catalogerName) return;
 
             const totalRecords = parseInt(document.body.dataset.totalRecords || '0');

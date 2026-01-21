@@ -13,7 +13,7 @@ from PIL import Image as PILImage
 from io import BytesIO
 from openpyxl.drawing.image import Image as XLImage
 import time
-from prompts import SouthernArchitectPrompts
+from prompts import ArchitecturalDrawingPrompts
 from shared_utilities import APIStats, postprocess_api_response, parse_json_response_enhanced
 
 # Configure logging
@@ -29,7 +29,7 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-client = OpenAI(api_key=os.getenv('OPENAI_SOUTHERN_ARCHITECT_API_KEY'))
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 DEFAULT_MODEL = "gpt-5.1"  # Default model, change as needed
 
 api_stats = APIStats()
@@ -240,7 +240,7 @@ def load_collection_context(input_folder: str = None) -> str:
     if not context_data:
         return ""
 
-    return SouthernArchitectPrompts.create_collection_context(
+    return ArchitecturalDrawingPrompts.create_collection_context(
         creator=context_data.get('creator', ''),
         title=context_data.get('title', ''),
         dates=context_data.get('dates', ''),
@@ -256,7 +256,7 @@ def prepare_batch_requests(all_images, model_name, collection_context=""):
     custom_id_mapping = {}
 
     # Get the architectural drawing prompt with collection context
-    prompt = SouthernArchitectPrompts.get_architectural_drawing_prompt(collection_context)
+    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context)
 
     for i, (folder_name, page_number, img_path) in enumerate(all_images):
         # Prepare base64 image
@@ -338,7 +338,7 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
 
     # Get the architectural drawing prompt with collection context
-    prompt = SouthernArchitectPrompts.get_architectural_drawing_prompt(collection_context)
+    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context)
 
     api_stats.total_requests += 1
     start_time = time.time()

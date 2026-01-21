@@ -1,11 +1,22 @@
+# AI Provider SDKs
 openai>=1.0.0
-lxml
-spacy
-openpyxl 
-tiktoken
-tenacity
+anthropic>=0.30.0
+google-genai>=1.0.0
+
+# Data processing
 pandas
+openpyxl
+lxml
+rapidfuzz
+
+# HTTP & async
 requests
 aiohttp
+tenacity
+
+# Image processing
 pillow
-rapidfuzz
+
+# NLP & tokenization
+spacy
+tiktoken

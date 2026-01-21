@@ -10,7 +10,7 @@ from openai import OpenAI
 import tenacity
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-from prompts import SouthernArchitectPrompts
+from prompts import ArchitecturalDrawingPrompts
 from shared_utilities import APIStats, find_newest_folder
 
 # Import our custom modules
@@ -50,7 +50,7 @@ def load_collection_context(image_folder_path: str) -> str:
     if not context_data:
         return ""
 
-    return SouthernArchitectPrompts.create_collection_context(
+    return ArchitecturalDrawingPrompts.create_collection_context(
         creator=context_data.get('creator', ''),
         title=context_data.get('title', ''),
         dates=context_data.get('dates', ''),
@@ -121,11 +121,11 @@ class VocabularySelector:
     def __init__(self, model_name: str = DEFAULT_MODEL, collection_context: str = ""):
         self.model_name = model_name
         self.collection_context = collection_context
-        self.system_prompt = SouthernArchitectPrompts.get_vocabulary_selection_system_prompt(collection_context)
+        self.system_prompt = ArchitecturalDrawingPrompts.get_vocabulary_selection_system_prompt(collection_context)
 
     def create_system_prompt(self) -> str:
         """Create the system prompt for vocabulary selection."""
-        return SouthernArchitectPrompts.get_vocabulary_selection_system_prompt(self.collection_context)
+        return ArchitecturalDrawingPrompts.get_vocabulary_selection_system_prompt(self.collection_context)
 
     def create_user_prompt(self, entry_data: Dict[str, Any]) -> str:
         """Create the user prompt for a specific entry with topics organized format."""

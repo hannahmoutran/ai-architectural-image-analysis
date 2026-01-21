@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Southern Architect Step 1.5: Batch Cleanup
-==========================================
+Step 1.5: Batch Cleanup
+=======================
 
-This script detects failed batch processing items from Step 1 and reprocesses them 
+This script detects failed batch processing items from Step 1 and reprocesses them
 individually with retry logic to ensure clean, complete metadata before Steps 2-5.
 
-This runs immediately after Step 1 if batch processing was used, ensuring all 
+This runs immediately after Step 1 if batch processing was used, ensuring all
 downstream steps have high-quality data to work with.
-
 """
 
 import os
@@ -32,7 +31,7 @@ from shared_utilities import APIStats, postprocess_api_response, parse_json_resp
 # Import our custom modules
 from model_pricing import calculate_cost, get_model_info
 from token_logging import create_token_usage_log, log_individual_response
-from prompts import SouthernArchitectPrompts
+from prompts import ArchitecturalDrawingPrompts
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -305,7 +304,7 @@ class BatchCleanupProcessor:
             }, "Empty content", None, 0
         
         # Use prompts module (same as Step 1)
-        prompt, prompt_type = SouthernArchitectPrompts.determine_prompt_type(content, page_number, file_path)
+        prompt, prompt_type = ArchitecturalDrawingPrompts.determine_prompt_type(content, page_number, file_path)
         
         api_stats.total_requests += 1
         start_time = time.time()
@@ -376,7 +375,7 @@ class BatchCleanupProcessor:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": f"{SouthernArchitectPrompts.get_image_analysis_prompt()}\n\nNote: This is Step 1.5 cleanup - reprocessing to fix batch processing issues."},
+                    {"type": "text", "text": f"{ArchitecturalDrawingPrompts.get_image_analysis_prompt()}\n\nNote: This is Step 1.5 cleanup - reprocessing to fix batch processing issues."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]
             }],
@@ -543,7 +542,7 @@ class BatchCleanupProcessor:
             report_path = os.path.join(logs_folder, "step1_5_batch_cleanup_report.txt")
             
             with open(report_path, 'w', encoding='utf-8') as f:
-                f.write("SOUTHERN ARCHITECT STEP 1.5 BATCH CLEANUP REPORT\n")
+                f.write("STEP 1.5 BATCH CLEANUP REPORT\n")
                 f.write("=" * 55 + "\n\n")
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Workflow Type: {self.workflow_type.upper()}\n")
@@ -675,7 +674,7 @@ class BatchCleanupProcessor:
 
     def run(self, model_name: str = DEFAULT_MODEL) -> bool:
         """Main execution method for Step 1.5."""
-        print(f"\nSOUTHERN ARCHITECT STEP 1.5 - BATCH CLEANUP")
+        print(f"\nSTEP 1.5 - BATCH CLEANUP")
         print(f"Processing folder: {os.path.basename(self.folder_path)}")
         print(f"Purpose: Fix failed batch items from Step 1 before downstream processing")
         print(f"Model: {model_name}")
@@ -769,7 +768,7 @@ class BatchCleanupProcessor:
                     # Log individual response
                     log_individual_response(
                         logs_folder_path=logs_folder_path,
-                        script_name="southern_architect_step1_5_cleanup",
+                        script_name="step1_5_cleanup",
                         row_number=item_index + 2,
                         barcode=f"{folder}_page{page}",
                         response_text=raw_response,
@@ -801,7 +800,7 @@ class BatchCleanupProcessor:
                 # Log the failure
                 log_individual_response(
                     logs_folder_path=logs_folder_path,
-                    script_name="southern_architect_step1_5_cleanup",
+                    script_name="step1_5_cleanup",
                     row_number=item_index + 2,
                     barcode=f"{folder}_page{page}",
                     response_text=f"REPROCESSING FAILED: {str(e)}",
@@ -836,7 +835,7 @@ class BatchCleanupProcessor:
             
             create_token_usage_log(
                 logs_folder_path=logs_folder_path,
-                script_name="southern_architect_step1_5_cleanup",
+                script_name="step1_5_cleanup",
                 model_name=model_name,
                 total_items=len(failed_items),
                 items_with_issues=len(failed_items) - self.reprocessed_items,

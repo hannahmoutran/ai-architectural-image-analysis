@@ -1344,7 +1344,7 @@ class ArchitecturalDrawingsEnhancer:
                             'label': chronological_term,
                             'uri': '',  # No URI available
                             'source': 'LCSH Chronological (generated)',
-                            'description': f'Generated chronological term for Southern Architect collection',
+                            'description': 'Generated chronological term for collection',
                             'type': 'chronological'
                         }
                         

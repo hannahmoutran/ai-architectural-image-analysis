@@ -1,14 +1,14 @@
 """
 Architectural Archives Prompts Module
 
-This module contains all prompt components for the architectural archives project workflow.
+This module contains all prompt components for the architectural drawing analysis workflow.
 
 Workflow Steps:
 - Step 1: Initial metadata extraction from architectural drawings (image analysis)
 - Step 3: Vocabulary selection from controlled vocabularies
 """
 
-class SouthernArchitectPrompts:
+class ArchitecturalDrawingPrompts:
     """Container for all workflow prompts."""
 
     # ==================== SHARED INSTRUCTIONS ====================

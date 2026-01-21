@@ -1,9 +1,8 @@
-# Python essentials
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-get-pip.py
 
 # Virtual environments
 .env
@@ -11,45 +10,26 @@ get-pip.py
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
 myenv/
 
 # Type checking
 .mypy_cache/
-.dmypy.json
-dmypy.json
 .pyre/
 
-# macOS specific
+# macOS
 .DS_Store
 **/.DS_Store
 ._*
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
-.Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
 
-# Ignore specific directories
-/CODE/output_folders
-/CODE/image_folders
-/CODE/other-code
+# Project-specific - ignore data folders
+CODE/output_folders/
+CODE/image_folders/
+CODE/other-code/
 
-# Ignore specific common files and directories
-.DS_Store
-myenv/
+# Output files (keep code, ignore generated data)
 *.xlsx
-*.docx
-*.json
 *.log
-*.pdf
 ~$*.xlsx
 
+# Large files
+get-pip.py

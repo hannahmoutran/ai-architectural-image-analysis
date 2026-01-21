@@ -1,5 +1,5 @@
-# southern_architect_entity_authority.py
-# Create local authority file for Southern Architect named entities with fuzzy matching
+# Step 4: Entity Report Creation
+# Create local authority file for named entities with fuzzy matching
 
 import os
 import json
@@ -26,7 +26,7 @@ except ImportError:
         FUZZY_LIB = None
 
 class EntityAuthority:
-    """Build authority records for Southern Architect entities with fuzzy matching."""
+    """Build authority records for named entities with fuzzy matching."""
     
     def __init__(self, folder_path: str, similarity_threshold: int = 85):
         self.folder_path = folder_path
@@ -331,13 +331,13 @@ class EntityAuthority:
         """Create comprehensive authority file."""
         try:
             metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
-            authority_path = os.path.join(metadata_dir, "southern_architect_entity_authority.json")
-            
+            authority_path = os.path.join(metadata_dir, "entity_authority.json")
+
             # Create structured authority data
             authority_data = {
                 "metadata": {
                     "created": datetime.now().isoformat(),
-                    "source": "Southern Architect and Building News (1892-1931)",
+                    "source": "Architectural Drawing Collection",
                     "total_entities": len(entity_records),
                     "extraction_method": "Named Entity Recognition with Type Classification",
                     "fuzzy_matching": {
@@ -420,7 +420,7 @@ class EntityAuthority:
             report_path = os.path.join(metadata_dir, "entity_authority_report.txt")
             
             with open(report_path, 'w', encoding='utf-8') as f:
-                f.write("SOUTHERN ARCHITECT ENTITY AUTHORITY REPORT\n")
+                f.write("ENTITY AUTHORITY REPORT\n")
                 f.write("=" * 50 + "\n\n")
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Total Entities: {len(entity_records)}\n")
@@ -485,7 +485,7 @@ class EntityAuthority:
     
     def run(self) -> bool:
         """Main execution method."""
-        print(f"\nSOUTHERN ARCHITECT ENTITY AUTHORITY BUILDER")
+        print(f"\nENTITY AUTHORITY BUILDER")
         print(f"Processing folder: {self.folder_path}")
         if FUZZY_LIB:
             print(f"Fuzzy matching: Enabled ({FUZZY_LIB}, threshold: {self.similarity_threshold}%)")
@@ -533,7 +533,7 @@ class EntityAuthority:
     
 def main():
     
-    # Default base directory for Southern Architect output folders
+    # Default base directory for output folders
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_output_dir = os.path.join(script_dir, "output_folders")
 

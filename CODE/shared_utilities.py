@@ -1,5 +1,5 @@
 """
-Shared utilities for Southern Architect processing pipeline.
+Shared utilities for Architectural Drawing Analysis pipeline.
 Contains common functions and classes used across multiple steps.
 """
 
