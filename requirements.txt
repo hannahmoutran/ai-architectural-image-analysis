@@ -1,0 +1,11 @@
+openai>=1.0.0
+lxml
+spacy
+openpyxl 
+tiktoken
+tenacity
+pandas
+requests
+aiohttp
+pillow
+rapidfuzz

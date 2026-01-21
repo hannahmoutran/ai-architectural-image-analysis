@@ -1,0 +1,11 @@
+creator: Last Name, First Name, birth-death years
+title: Collection title as it appears in the finding aid
+dates: Inclusive date range (e.g., 1890-1937)
+abstract: The full abstract from the finding aid. This provides crucial context about the creator, their work, the types of projects they did, their style, geographic focus, and what types of materials are in the collection. This helps the AI understand what it's looking at.
+extent: Physical extent of the collection (e.g., 13 linear feet, 6,500 drawings)
+repository: Alexander Architectural Archives, University of Texas Libraries, The University of Texas at Austin
+identification: Collection ID code (e.g., GOR)
+language: English
+
+---
+USAGE: Copy this template and fill in the fields for each collection. Place the text file either in the input folder as 'collection_context.txt' or specify its path via COLLECTION_CONTEXT_PATH environment variable. Fields can be omitted if not available - only include what you have.

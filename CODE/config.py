@@ -1,0 +1,187 @@
+# config.py
+"""
+Configuration file for AI Architectural Image Analysis pipeline.
+Edit this file to set your preferences for image processing.
+Please note that output folder name will be based on the model used in step 1 
+"""
+
+# =============================================================================
+# IMAGE FOLDER CONFIGURATION
+# =============================================================================
+# Name of the folder containing images to process (located in CODE/image_folders/)
+IMAGE_FOLDER = "alfred-zucker"
+
+# =============================================================================
+# MODEL CONFIGURATION
+# =============================================================================
+# Provider options: "claude", "openai", "gemini"
+# The provider determines which API and script will be used
+
+# --- Step 1: Image Analysis ---
+# Extracts metadata from architectural drawings
+STEP1_PROVIDER = "openai"
+
+# --- Step 3: Vocabulary Selection ---
+# Selects best vocabulary terms for each drawing
+STEP3_PROVIDER = "openai"
+
+# =============================================================================
+# AVAILABLE MODELS BY PROVIDER
+# =============================================================================
+# These are the available models for each provider.
+# Uncomment the model you want to use, or set a custom model name.
+
+AVAILABLE_MODELS = {
+    # -------------------------------------------------------------------------
+    # ANTHROPIC CLAUDE MODELS
+    # -------------------------------------------------------------------------
+    "claude": {
+        "default": "claude-sonnet-4-5-20250929",
+        "models": [
+            # Opus - Most capable
+            "claude-opus-4-5-20250514",
+            "claude-opus-4-1-20250414",
+            "claude-opus-4-20250514",
+            # Sonnet - Balanced performance/cost
+            "claude-sonnet-4-5-20250929",
+            "claude-sonnet-4-5-20250514",
+            "claude-sonnet-4-20250514",
+            # Haiku - Fast and affordable
+            "claude-haiku-4-5-20250514",
+            "claude-3-5-haiku-20241022",
+            "claude-3-haiku-20240307",
+        ]
+    },
+
+    # -------------------------------------------------------------------------
+    # OPENAI MODELS
+    # -------------------------------------------------------------------------
+    "openai": {
+        "default": "gpt-5.1",
+        "models": [
+            # GPT-5 Series
+            "gpt-5.2",
+            "gpt-5.1",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            # GPT-5 Pro (reasoning)
+            "gpt-5.2-pro",
+            "gpt-5-pro",
+            # GPT-4.1 Series
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            # GPT-4o Series
+            "gpt-4o",
+            "gpt-4o-mini",
+            # O-Series (reasoning)
+            "o1",
+            "o1-mini",
+            "o3",
+            "o3-mini",
+            "o4-mini",
+        ]
+    },
+
+    # -------------------------------------------------------------------------
+    # GOOGLE GEMINI MODELS
+    # -------------------------------------------------------------------------
+    "gemini": {
+        "default": "gemini-3-flash-preview",
+        "models": [
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-3-pro-image-preview",
+        ]
+    }
+}
+
+# =============================================================================
+# CUSTOM MODEL OVERRIDE (Optional)
+# =============================================================================
+# If you want to use a specific model instead of the provider default,
+# set it here. Leave as None to use the provider's default model.
+
+STEP1_MODEL = None  # e.g., "claude-opus-4-5-20250514" or None for default
+STEP3_MODEL = None  # e.g., "gpt-4.1-mini" or None for default
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_step1_config():
+    """Get the configuration for Step 1 (Image Analysis)."""
+    provider = STEP1_PROVIDER.lower()
+    if provider not in AVAILABLE_MODELS:
+        raise ValueError(f"Unknown provider: {provider}. Choose from: {list(AVAILABLE_MODELS.keys())}")
+
+    model = STEP1_MODEL if STEP1_MODEL else AVAILABLE_MODELS[provider]["default"]
+
+    return {
+        "provider": provider,
+        "model": model,
+        "image_folder": IMAGE_FOLDER
+    }
+
+
+def get_step3_config():
+    """Get the configuration for Step 3 (Vocabulary Selection)."""
+    provider = STEP3_PROVIDER.lower()
+    if provider not in AVAILABLE_MODELS:
+        raise ValueError(f"Unknown provider: {provider}. Choose from: {list(AVAILABLE_MODELS.keys())}")
+
+    model = STEP3_MODEL if STEP3_MODEL else AVAILABLE_MODELS[provider]["default"]
+
+    return {
+        "provider": provider,
+        "model": model
+    }
+
+
+def list_available_models(provider=None):
+    """List available models, optionally filtered by provider."""
+    if provider:
+        provider = provider.lower()
+        if provider not in AVAILABLE_MODELS:
+            print(f"Unknown provider: {provider}")
+            return
+        print(f"\n{provider.upper()} Models:")
+        print(f"  Default: {AVAILABLE_MODELS[provider]['default']}")
+        print("  Available:")
+        for model in AVAILABLE_MODELS[provider]["models"]:
+            print(f"    - {model}")
+    else:
+        for prov, config in AVAILABLE_MODELS.items():
+            print(f"\n{prov.upper()} Models:")
+            print(f"  Default: {config['default']}")
+            print("  Available:")
+            for model in config["models"]:
+                print(f"    - {model}")
+
+
+def print_current_config():
+    """Print the current configuration."""
+    print("\n" + "=" * 60)
+    print("CURRENT CONFIGURATION")
+    print("=" * 60)
+    print(f"\nImage Folder: {IMAGE_FOLDER}")
+
+    step1 = get_step1_config()
+    print(f"\nStep 1 (Image Analysis):")
+    print(f"  Provider: {step1['provider']}")
+    print(f"  Model: {step1['model']}")
+
+    step3 = get_step3_config()
+    print(f"\nStep 3 (Vocabulary Selection):")
+    print(f"  Provider: {step3['provider']}")
+    print(f"  Model: {step3['model']}")
+    print("=" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    # When run directly, show current config and available models
+    print_current_config()
+    print("\nAVAILABLE MODELS:")
+    list_available_models()
