@@ -25,6 +25,7 @@ import sys
 import json
 import shutil
 import argparse
+import re
 from datetime import datetime
 from difflib import SequenceMatcher
 from openpyxl import load_workbook
@@ -84,8 +85,33 @@ class ArchivistEditsIntegrator:
             'headings_removed': 0,
             'headings_kept': 0,
             # Per-record detailed metrics
-            'per_record_metrics': []
+            'per_record_metrics': [],
+            # List field metrics (for contributors, entities, subjects)
+            'list_field_metrics': {}
         }
+
+    def _extract_models_from_logs(self):
+        """Extract all models used from token usage logs in the logs folder."""
+        logs_folder = os.path.join(self.folder_path, "logs")
+        models = set()
+
+        if not os.path.exists(logs_folder):
+            return []
+
+        for filename in os.listdir(logs_folder):
+            # Only process token usage logs, skip step2 API logs (not LLM)
+            if filename.endswith("_token_usage_log.txt") and "step2_vocab_api" not in filename:
+                filepath = os.path.join(logs_folder, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    match = re.search(r'Model used:\s*(.+?)(?:\n|$)', content)
+                    if match:
+                        models.add(match.group(1).strip())
+                except Exception:
+                    pass
+
+        return sorted(list(models))
 
     def find_latest_export(self):
         """Find the most recent archivist decisions export JSON."""
@@ -220,7 +246,8 @@ class ArchivistEditsIntegrator:
                         'chars_deleted': 0,
                         'chars_total_changed': 0,
                         'total_original_length': 0,
-                        'total_new_length': 0
+                        'total_new_length': 0,
+                        'similarity_sum': 0.0
                     }
                 # Accumulate metrics
                 self.stats['text_field_metrics'][field_name]['edits_count'] += 1
@@ -229,8 +256,22 @@ class ArchivistEditsIntegrator:
                 self.stats['text_field_metrics'][field_name]['chars_total_changed'] += diff_metrics['chars_total_changed']
                 self.stats['text_field_metrics'][field_name]['total_original_length'] += diff_metrics['original_length']
                 self.stats['text_field_metrics'][field_name]['total_new_length'] += diff_metrics['new_length']
+                self.stats['text_field_metrics'][field_name]['similarity_sum'] += diff_metrics['similarity_ratio']
             elif field_name in list_fields:
                 diff_metrics = self._calculate_list_diff_metrics(original_value, new_value)
+                # Initialize list field metrics if needed
+                if field_name not in self.stats['list_field_metrics']:
+                    self.stats['list_field_metrics'][field_name] = {
+                        'edits_count': 0,
+                        'items_added': 0,
+                        'items_removed': 0,
+                        'items_kept': 0
+                    }
+                # Accumulate metrics
+                self.stats['list_field_metrics'][field_name]['edits_count'] += 1
+                self.stats['list_field_metrics'][field_name]['items_added'] += diff_metrics['items_added']
+                self.stats['list_field_metrics'][field_name]['items_removed'] += diff_metrics['items_removed']
+                self.stats['list_field_metrics'][field_name]['items_kept'] += diff_metrics['items_kept']
             else:
                 diff_metrics = {}
 
@@ -795,100 +836,132 @@ class ArchivistEditsIntegrator:
         ws.column_dimensions['D'].width = 40
         ws.column_dimensions['E'].width = 40
 
+    def _calculate_quality_scores(self):
+        """Calculate aggregate quality scores for LLM comparison."""
+        # Edit rate: proportion of records that needed edits
+        total_records = self.stats['total_records_in_export']
+        edit_rate = (self.stats['records_with_edits'] / total_records) if total_records > 0 else 0
+
+        # Term approval rate
+        total_terms = self.stats['total_term_decisions']
+        term_approval_rate = (self.stats['terms_approved'] / total_terms) if total_terms > 0 else 1.0
+
+        # Average text similarity across all edited text fields
+        total_similarity = 0.0
+        total_edits = 0
+        for metrics in self.stats['text_field_metrics'].values():
+            if metrics['edits_count'] > 0:
+                total_similarity += metrics['similarity_sum']
+                total_edits += metrics['edits_count']
+        avg_text_similarity = (total_similarity / total_edits) if total_edits > 0 else 1.0
+
+        return {
+            'edit_rate': round(edit_rate, 4),
+            'term_approval_rate': round(term_approval_rate, 4),
+            'avg_text_similarity': round(avg_text_similarity, 4)
+        }
+
+    def _build_per_record_summary(self):
+        """Build concise per-record metrics for the report."""
+        records = []
+        for record_metrics in self.stats['per_record_metrics']:
+            record = {
+                'id': record_metrics['record_id'],
+                'text_fields': {},
+                'list_fields': {},
+                'terms': record_metrics.get('term_decisions', {})
+            }
+
+            # Process field edits
+            for field_name, metrics in record_metrics.get('field_edits', {}).items():
+                if 'similarity_ratio' in metrics:
+                    # Text field
+                    record['text_fields'][field_name] = {
+                        'chars_changed': metrics.get('chars_total_changed', 0),
+                        'similarity': metrics.get('similarity_ratio', 1.0)
+                    }
+                elif 'items_added' in metrics:
+                    # List field
+                    record['list_fields'][field_name] = {
+                        'added': metrics.get('items_added', 0),
+                        'removed': metrics.get('items_removed', 0),
+                        'kept': metrics.get('items_kept', 0)
+                    }
+
+            records.append(record)
+        return records
+
     def generate_edit_statistics_report(self):
-        """Generate a detailed JSON report quantifying all archivist edits.
+        """Generate a simplified JSON report for comparing LLM quality.
 
         Creates edit_statistics_report.json with:
-        - Summary statistics
-        - Character-level metrics for each text field
-        - Subject/heading change metrics
-        - Per-record detailed metrics
+        - batch_info: Models used, archivist, date, record counts
+        - quality_scores: Top-level metrics for LLM comparison
+        - field_summary: Per-field aggregated metrics
+        - records: Concise per-record metrics
         """
         self.stats['integration_timestamp'] = datetime.now().isoformat()
 
-        report = {
-            'report_generated': self.stats['integration_timestamp'],
-            'archivist_name': self.stats['archivist_name'],
-            'export_timestamp': self.stats['export_timestamp'],
+        # Extract models from logs
+        models_used = self._extract_models_from_logs()
 
-            # High-level summary
-            'summary': {
-                'total_records_in_export': self.stats['total_records_in_export'],
-                'records_with_edits': self.stats['records_with_edits'],
-                'records_reviewed_only': self.stats['records_reviewed_only'],
-                'total_field_edits': self.stats['total_field_edits'],
-                'total_term_decisions': self.stats['total_term_decisions']
-            },
+        # Calculate quality scores
+        quality_scores = self._calculate_quality_scores()
 
-            # Text field character-level metrics
-            'text_field_metrics': {},
-
-            # Subject metrics
-            'subject_metrics': {
-                'original_count': self.stats['subjects_original_count'],
-                'final_count': self.stats['subjects_final_count'],
-                'kept': self.stats['subjects_kept'],
-                'removed': self.stats['subjects_removed'],
-                'added_by_archivist': self.stats['subjects_added'],
-                'net_change': self.stats['subjects_final_count'] - self.stats['subjects_original_count']
-            },
-
-            # Subject heading metrics
-            'subject_heading_metrics': {
-                'original_count': self.stats['headings_original_count'],
-                'final_count': self.stats['headings_final_count'],
-                'kept': self.stats['headings_kept'],
-                'removed': self.stats['headings_removed'],
-                'added_by_archivist': self.stats['headings_added'],
-                'net_change': self.stats['headings_final_count'] - self.stats['headings_original_count']
-            },
-
-            # Term decision breakdown
-            'term_decisions': {
-                'total': self.stats['total_term_decisions'],
-                'approved': self.stats['terms_approved'],
-                'rejected_explicit': self.stats['terms_rejected'],
-                'rejected_cascade': self.stats['terms_cascade_rejected'],
-                'subjects_rejected': self.stats['subjects_rejected'],
-                'custom_terms_added': self.stats['custom_terms_added'],
-                'custom_subjects_added': self.stats['custom_subjects_added']
-            },
-
-            # Edits by field count
-            'edits_by_field_count': self.stats['edits_by_field'],
-
-            # Per-record detailed metrics
-            'per_record_metrics': self.stats['per_record_metrics'],
-
-            # Full edit history (for auditing)
-            'edit_history': self.edit_history
-        }
-
-        # Build detailed text field metrics
+        # Build text field summary
+        text_fields_summary = {}
         for field_name, metrics in self.stats['text_field_metrics'].items():
-            report['text_field_metrics'][field_name] = {
-                'edits_count': metrics['edits_count'],
-                'characters_added': metrics['chars_added'],
-                'characters_deleted': metrics['chars_deleted'],
-                'characters_total_changed': metrics['chars_total_changed'],
-                'total_original_length': metrics['total_original_length'],
-                'total_new_length': metrics['total_new_length'],
-                'net_character_change': metrics['total_new_length'] - metrics['total_original_length'],
-                'average_chars_changed_per_edit': round(
-                    metrics['chars_total_changed'] / metrics['edits_count'], 2
-                ) if metrics['edits_count'] > 0 else 0
+            edits = metrics['edits_count']
+            avg_similarity = (metrics['similarity_sum'] / edits) if edits > 0 else 1.0
+            avg_chars = (metrics['chars_total_changed'] / edits) if edits > 0 else 0
+            text_fields_summary[field_name] = {
+                'records_edited': edits,
+                'total_chars_changed': metrics['chars_total_changed'],
+                'avg_chars_changed': round(avg_chars, 1),
+                'avg_similarity': round(avg_similarity, 4)
             }
 
-        # Calculate totals across all text fields
-        total_chars_added = sum(m['chars_added'] for m in self.stats['text_field_metrics'].values())
-        total_chars_deleted = sum(m['chars_deleted'] for m in self.stats['text_field_metrics'].values())
-        total_chars_changed = sum(m['chars_total_changed'] for m in self.stats['text_field_metrics'].values())
+        # Build list field summary
+        list_fields_summary = {}
+        for field_name, metrics in self.stats['list_field_metrics'].items():
+            net = metrics['items_added'] - metrics['items_removed']
+            list_fields_summary[field_name] = {
+                'records_edited': metrics['edits_count'],
+                'items_added': metrics['items_added'],
+                'items_removed': metrics['items_removed'],
+                'net_change': net
+            }
 
-        report['text_field_totals'] = {
-            'total_characters_added': total_chars_added,
-            'total_characters_deleted': total_chars_deleted,
-            'total_characters_changed': total_chars_changed,
-            'net_character_change': total_chars_added - total_chars_deleted
+        # Subject headings summary
+        total_terms = self.stats['total_term_decisions']
+        approval_rate = (self.stats['terms_approved'] / total_terms) if total_terms > 0 else 1.0
+        subject_headings_summary = {
+            'original': self.stats['headings_original_count'],
+            'approved': self.stats['terms_approved'],
+            'rejected': self.stats['terms_rejected'],
+            'cascade_rejected': self.stats['terms_cascade_rejected'],
+            'custom_added': self.stats['custom_terms_added'] + self.stats['custom_subjects_added'],
+            'final': self.stats['headings_final_count'],
+            'approval_rate': round(approval_rate, 4)
+        }
+
+        # Build the simplified report
+        report = {
+            'batch_info': {
+                'models_used': models_used,
+                'archivist': self.stats['archivist_name'],
+                'date': self.stats['integration_timestamp'][:10],
+                'total_records': self.stats['total_records_in_export'],
+                'records_edited': self.stats['records_with_edits'],
+                'records_reviewed_only': self.stats['records_reviewed_only']
+            },
+            'quality_scores': quality_scores,
+            'field_summary': {
+                'text_fields': text_fields_summary,
+                'list_fields': list_fields_summary,
+                'subject_headings': subject_headings_summary
+            },
+            'records': self._build_per_record_summary()
         }
 
         # Save report
@@ -900,6 +973,28 @@ class ArchivistEditsIntegrator:
             return report_path
         except Exception as e:
             print(f"   Error generating edit statistics report: {e}")
+            return None
+
+    def generate_edit_changelog(self):
+        """Generate a separate changelog file with full edit history for auditing.
+
+        Creates edit_changelog.json with detailed before/after values.
+        """
+        changelog = {
+            'generated': self.stats['integration_timestamp'],
+            'archivist': self.stats['archivist_name'],
+            'total_edits': len(self.edit_history),
+            'edits': self.edit_history
+        }
+
+        changelog_path = os.path.join(self.metadata_folder, "edit_changelog.json")
+        try:
+            with open(changelog_path, 'w', encoding='utf-8') as f:
+                json.dump(changelog, f, indent=2, ensure_ascii=False)
+            print(f"   Generated edit_changelog.json")
+            return changelog_path
+        except Exception as e:
+            print(f"   Error generating edit changelog: {e}")
             return None
 
     def print_summary(self):
@@ -1144,14 +1239,16 @@ class ArchivistEditsIntegrator:
         self.generate_final_metadata()
 
         # Generate edit statistics report
-        print("\n9. Generating edit statistics report...")
+        print("\n9. Generating reports...")
         report_path = self.generate_edit_statistics_report()
+        changelog_path = self.generate_edit_changelog()
 
         # Print summary
         self.print_summary()
 
         final_metadata_path = os.path.join(self.metadata_folder, "final_metadata.json")
         edit_stats_path = os.path.join(self.metadata_folder, "edit_statistics_report.json")
+        edit_changelog_path = os.path.join(self.metadata_folder, "edit_changelog.json")
 
         print("\n" + "=" * 60)
         print("INTEGRATION COMPLETE")
@@ -1160,8 +1257,9 @@ class ArchivistEditsIntegrator:
         print(f"   {self.workflow_json_path}")
         print(f"   {self.workflow_excel_path}")
         print(f"   {final_metadata_path}")
-        print(f"\nEdit statistics report:")
+        print(f"\nReports generated:")
         print(f"   {edit_stats_path}")
+        print(f"   {edit_changelog_path}")
         print(f"\nOriginal files backed up to:")
         print(f"   {self.original_outputs_folder}")
         print("=" * 60)
