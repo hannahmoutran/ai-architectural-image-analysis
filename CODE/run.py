@@ -6,12 +6,10 @@ AI Architectural Image Analysis - Unified Runner
 Run the processing pipeline using settings from config.py.
 
 Usage:
-    python run.py              # Interactive menu
-    python run.py 1            # Run Step 1 only
-    python run.py 3            # Run Step 3 only
-    python run.py 1 2 3        # Run Steps 1, 2, and 3
-    python run.py all          # Run all steps (1, 2, 3, 4)
+    python run.py              # Run the pipeline
     python run.py --config     # Show current configuration
+
+Note: integrate-archivist-edits.py must be run standalone after archivist review.
 
 Configure settings in config.py before running.
 """
@@ -19,14 +17,13 @@ Configure settings in config.py before running.
 import os
 import sys
 import subprocess
-import argparse
 from datetime import datetime
 
 # Add CODE directory to path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
-from config import get_step1_config, get_step3_config, print_current_config, IMAGE_FOLDER
+from config import get_step1_config, get_step3_config, print_current_config
 
 
 def run_step(step_num, env_overrides=None):
@@ -69,13 +66,9 @@ def run_step(step_num, env_overrides=None):
         script_name = "step-4-entity-report-creation.py"
         step_desc = "Entity Report Creation"
 
-    elif step_num == 5:
-        script_name = "step-5-html-review.py"
-        step_desc = "HTML Review Interface"
-
-    elif step_num == 6:
-        script_name = "step-6-integrate-archivist-edits.py"
-        step_desc = "Integrate Archivist Edits"
+    elif step_num == 'html':
+        script_name = "html-review.py"
+        step_desc = "HTML Review Interface (Optional)"
 
     else:
         print(f"Unknown step: {step_num}")
@@ -104,9 +97,9 @@ def run_step(step_num, env_overrides=None):
             cwd=script_dir
         )
         if result.returncode == 0:
-            print(f"\n Step {step_num} completed successfully")
+            print(f"\n Step {step_desc} completed successfully")
         else:
-            print(f"\n Step {step_num} failed (exit code: {result.returncode})")
+            print(f"\n Step {step_desc} failed (exit code: {result.returncode})")
         return result.returncode == 0
     except KeyboardInterrupt:
         print(f"\n Step {step_num} interrupted by user")
@@ -124,100 +117,35 @@ def interactive_menu():
 
     print_current_config()
 
-    print("SELECT STEPS TO RUN:")
-    print("  1. Step 1: Image Analysis (extract metadata from drawings)")
-    print("  2. Step 2: Vocabulary Lookup (LCSH, FAST, Getty terms)")
-    print("  3. Step 3: Vocabulary Selection (AI-powered term selection)")
-    print("  4. Step 4: Entity Report Creation")
-    print("  5. Step 5: HTML Review Interface (archivist review)")
-    print("  6. Step 6: Integrate Archivist Edits")
-    print()
-    print("  A. Run ALL steps (1-6)")
-    print("  C. Show/edit configuration")
-    print("  Q. Quit")
+    print("This will run:")
+    print("  Step 1: Image Analysis (extract metadata from drawings)")
+    print("  Step 2: Vocabulary Lookup (LCSH, FAST, Getty terms)")
+    print("  Step 3: Vocabulary Selection (AI-powered term selection)")
+    print("  Step 4: Entity Report Creation")
     print()
 
-    while True:
-        choice = input("Enter choice (1-6, A, C, or Q): ").strip().lower()
+    response = input("Proceed? [y/n]: ").strip().lower()
+    if response not in ('y', 'yes'):
+        print("Cancelled.")
+        return [], False
 
-        if choice == 'q':
-            print("Goodbye!")
-            return []
-        elif choice == 'c':
-            print_current_config()
-            print("\nEdit config.py to change settings, then restart.\n")
-            continue
-        elif choice == 'a':
-            return [1, 2, 3, 4, 5, 6]
-        elif choice in ['1', '2', '3', '4', '5', '6']:
-            return [int(choice)]
-        elif ',' in choice or ' ' in choice:
-            # Allow multiple steps like "1,2,3" or "1 2 3"
-            try:
-                steps = [int(s.strip()) for s in choice.replace(',', ' ').split()]
-                if all(1 <= s <= 6 for s in steps):
-                    return steps
-            except ValueError:
-                pass
-            print("Invalid input. Enter step numbers 1-6.")
-        else:
-            print("Invalid choice. Try again.")
+    print()
+    html_response = input("Do you want to create the HTML review interface? [y/n]: ").strip().lower()
+    include_html = html_response in ('y', 'yes')
+
+    return [1, 2, 3, 4], include_html
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='AI Architectural Image Analysis - Unified Runner',
-        epilog="""
-Examples:
-  python run.py              # Interactive menu
-  python run.py 1            # Run Step 1 only
-  python run.py 1 2 3        # Run Steps 1, 2, and 3
-  python run.py all          # Run all steps
-  python run.py --config     # Show current configuration
-        """
-    )
-
-    parser.add_argument('steps', nargs='*',
-                        help='Steps to run (1-6 or "all")')
-    parser.add_argument('--config', '-c', action='store_true',
-                        help='Show current configuration and exit')
-
-    args = parser.parse_args()
-
-    # Show config only
-    if args.config:
+    # Check for --config flag
+    if len(sys.argv) > 1 and sys.argv[1] in ('--config', '-c'):
         print_current_config()
         return 0
 
-    # Determine which steps to run
-    if args.steps:
-        if 'all' in [s.lower() for s in args.steps]:
-            steps_to_run = [1, 2, 3, 4, 5, 6]
-        else:
-            try:
-                steps_to_run = [int(s) for s in args.steps]
-                if not all(1 <= s <= 6 for s in steps_to_run):
-                    print("Error: Steps must be 1, 2, 3, 4, 5, or 6")
-                    return 1
-            except ValueError:
-                print("Error: Invalid step number")
-                return 1
-    else:
-        # Interactive mode
-        steps_to_run = interactive_menu()
+    # Get confirmation to run
+    steps_to_run, include_html = interactive_menu()
 
     if not steps_to_run:
-        return 0
-
-    # Confirm before running
-    print("\n" + "-" * 60)
-    print(f"Will run: Step(s) {', '.join(str(s) for s in steps_to_run)}")
-    print(f"Image folder: {IMAGE_FOLDER}")
-    print("-" * 60)
-
-    response = input("Proceed? [y/n]: ").strip().lower()
-    if response in ('n', 'no'):
-        print("Cancelled.")
         return 0
 
     # Run the steps
@@ -246,6 +174,10 @@ Examples:
         status = "SUCCESS" if success else "FAILED"
         print(f"  Step {step}: {status}")
     print("=" * 60)
+
+    # Run HTML review interface if requested
+    if include_html and all(results.values()):
+        run_step('html')
 
     # Return non-zero if any step failed
     return 0 if all(results.values()) else 1

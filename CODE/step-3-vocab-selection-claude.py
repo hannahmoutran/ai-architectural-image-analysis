@@ -248,7 +248,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
 
     def detect_workflow_type(self) -> bool:
         """Detect workflow type and check for vocabulary enhancement."""
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         drawings_files = ['drawings_workflow.xlsx', 'drawings_workflow.json']
 
         has_drawings_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in drawings_files)
@@ -257,7 +257,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
             self.workflow_type = 'drawings'
             self.excel_path = os.path.join(metadata_dir, 'drawings_workflow.xlsx')
         else:
-            logging.error("Could not find drawings_workflow files in metadata/collection_metadata.")
+            logging.error("Could not find drawings_workflow files in metadata.")
             return False
 
         vocab_report_path = os.path.join(metadata_dir, 'vocabulary_mapping_report.txt')
@@ -270,7 +270,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
     def load_json_data(self) -> bool:
         """Load JSON data and verify vocabulary terms exist."""
         json_filename = f"{self.workflow_type}_workflow.json"
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         json_path = os.path.join(metadata_dir, json_filename)
 
         try:
@@ -394,14 +394,21 @@ class ArchitecturalDrawingsVocabularyProcessor:
         return selection_results
 
     def match_selected_labels_to_original_terms(self, selected_labels: List[str], vocab_search_results: Dict[str, List[Dict]]) -> List[Dict]:
-        """Match selected labels to original terms with source priority."""
+        """Match selected labels to original terms with source priority.
+
+        Also tracks which subject (topic) each term was derived from for cascade rejection support.
+        """
         import re
 
+        # Build a list of all terms with their source topic (subject) for provenance tracking
         all_available_terms = []
         for topic, terms in vocab_search_results.items():
             for term in terms:
                 if isinstance(term, dict):
-                    all_available_terms.append(term)
+                    # Create a copy with provenance tracking
+                    term_with_provenance = term.copy()
+                    term_with_provenance['derived_from_subject'] = topic
+                    all_available_terms.append(term_with_provenance)
 
         def normalize_for_comparison(label: str) -> str:
             normalized = re.sub(r'[^a-z\s]', '', label.lower())
@@ -491,13 +498,13 @@ class ArchitecturalDrawingsVocabularyProcessor:
                 updated_items.append(api_stats_data)
 
             json_filename = f"{self.workflow_type}_workflow.json"
-            metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+            metadata_dir = os.path.join(self.folder_path, "metadata")
             json_path = os.path.join(metadata_dir, json_filename)
 
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(updated_items, f, indent=2, ensure_ascii=False)
 
-            print(f"Updated JSON file with selected vocabulary terms")
+            print("Updated JSON file with selected vocabulary terms")
             return True
 
         except Exception as e:
@@ -570,7 +577,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
     def create_vocabulary_mapping_report(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
         """Create vocabulary mapping report."""
         try:
-            metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+            metadata_dir = os.path.join(self.folder_path, "metadata")
             report_path = os.path.join(metadata_dir, "vocabulary_mapping_report.txt")
 
             data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data

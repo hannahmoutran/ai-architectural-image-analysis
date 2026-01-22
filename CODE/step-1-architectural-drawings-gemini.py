@@ -737,7 +737,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     # Create metadata folder structure
-    metadata_folder = os.path.join(output_dir, "metadata", "collection_metadata")
+    metadata_folder = os.path.join(output_dir, "metadata")
     os.makedirs(metadata_folder, exist_ok=True)
 
     print(f"Output directory: output_folders/{folder_name}")

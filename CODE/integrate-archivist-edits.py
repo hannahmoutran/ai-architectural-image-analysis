@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-Step 6: Integrate Archivist Edits into Workflow Outputs
-========================================================
+Integrate Archivist Edits into Workflow Outputs
+================================================
 
 Processes archivist review decisions from exported JSON and updates all deliverable files.
 
 This script:
-1. Reads archivist decisions from JSON exports (created by Step 5 HTML review interface)
+1. Reads archivist decisions from JSON exports (created by html-review.py)
 2. Backs up original files to an 'original-outputs' folder
 3. Applies edits to the workflow JSON (drawings_workflow.json)
-4. Updates the Excel deliverable (drawings_workflow.xlsx)
-5. Adds an 'Edit History' sheet tracking all changes with statistics
+4. Handles cascade rejection logic (rejected subjects → reject derived headings)
+5. Updates the Excel deliverable (drawings_workflow.xlsx)
+6. Adds an 'Edit History' sheet tracking all changes with statistics
+7. Generates final_metadata.json with only approved/clean data
 
 Usage:
-    python step-6-integrate-archivist-edits.py
+    python integrate-archivist-edits.py                           # Use latest export
+    python integrate-archivist-edits.py --decisions path/to.json  # Use specific export
     python run.py 6
 """
 
@@ -21,6 +24,7 @@ import os
 import sys
 import json
 import shutil
+import argparse
 from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
@@ -38,7 +42,7 @@ class ArchivistEditsIntegrator:
     def __init__(self, folder_path):
         self.folder_path = folder_path
         self.folder_name = os.path.basename(folder_path)
-        self.metadata_folder = os.path.join(folder_path, "metadata", "collection_metadata")
+        self.metadata_folder = os.path.join(folder_path, "metadata")
         self.review_folder = os.path.join(folder_path, "review")
         self.exports_folder = os.path.join(self.review_folder, "exports")
         self.original_outputs_folder = os.path.join(folder_path, "original-outputs")
@@ -57,6 +61,8 @@ class ArchivistEditsIntegrator:
             'total_term_decisions': 0,
             'terms_approved': 0,
             'terms_rejected': 0,
+            'terms_cascade_rejected': 0,
+            'subjects_rejected': 0,
             'custom_terms_added': 0,
             'custom_subjects_added': 0,
             'edits_by_field': {},
@@ -211,24 +217,52 @@ class ArchivistEditsIntegrator:
         return value
 
     def apply_term_decisions(self, record, term_decisions, record_id):
-        """Apply vocabulary term decisions to a record."""
+        """Apply vocabulary term decisions to a record.
+
+        Handles three types of decisions:
+        - 'approved': Term is approved
+        - 'rejected': Term is explicitly rejected
+        - dict with 'status': 'cascade_rejected': Term auto-rejected due to parent subject rejection
+        """
         analysis = record.get('analysis', {})
 
         # Track term decisions
-        for term_id, status in term_decisions.items():
+        for term_id, decision in term_decisions.items():
             self.stats['total_term_decisions'] += 1
-            if status == 'approved':
-                self.stats['terms_approved'] += 1
-            elif status == 'rejected':
-                self.stats['terms_rejected'] += 1
 
-            self.edit_history.append({
-                'record_id': record_id,
-                'field': 'vocabulary_term',
-                'original_value': term_id,
-                'new_value': status,
-                'edit_type': 'term_decision'
-            })
+            # Handle both old format (string) and new format (object with cascade info)
+            if isinstance(decision, dict):
+                status = decision.get('status', '')
+                cascade_from = decision.get('cascadeFrom', '')
+                if status == 'cascade_rejected':
+                    self.stats['terms_cascade_rejected'] += 1
+                    self.edit_history.append({
+                        'record_id': record_id,
+                        'field': 'vocabulary_term',
+                        'original_value': term_id,
+                        'new_value': f'cascade_rejected (from: {cascade_from})',
+                        'edit_type': 'term_cascade_rejected'
+                    })
+                else:
+                    # Unknown object format, treat as approved
+                    self.stats['terms_approved'] += 1
+            else:
+                status = decision
+                if status == 'approved':
+                    self.stats['terms_approved'] += 1
+                elif status == 'rejected':
+                    self.stats['terms_rejected'] += 1
+                    # Check if this is a subject rejection
+                    if term_id.startswith('subject-'):
+                        self.stats['subjects_rejected'] += 1
+
+                self.edit_history.append({
+                    'record_id': record_id,
+                    'field': 'vocabulary_term',
+                    'original_value': term_id,
+                    'new_value': status,
+                    'edit_type': 'term_decision'
+                })
 
         # Store term decisions in the record for reference
         if 'archivist_term_decisions' not in analysis:
@@ -558,24 +592,157 @@ class ArchivistEditsIntegrator:
                 print(f"   {field}: {count}")
         print(f"\nTerm decisions: {self.stats['total_term_decisions']}")
         print(f"   Approved: {self.stats['terms_approved']}")
-        print(f"   Rejected: {self.stats['terms_rejected']}")
+        print(f"   Rejected (explicit): {self.stats['terms_rejected']}")
+        print(f"   Rejected (cascade): {self.stats['terms_cascade_rejected']}")
+        print(f"   Subjects rejected: {self.stats['subjects_rejected']}")
         print(f"Custom terms added: {self.stats['custom_terms_added']}")
         print(f"Custom subjects added: {self.stats['custom_subjects_added']}")
 
-    def run(self):
-        """Main execution method."""
+    def generate_final_metadata(self):
+        """Generate final_metadata.json with only approved/clean data.
+
+        This creates a clean JSON file containing only:
+        - Edited/final field values
+        - Only approved subjects (not rejected)
+        - Only approved subject headings (not rejected or cascade-rejected)
+        - Custom terms/subjects added by archivist
+        - No intermediate data (raw_response, vocabulary_search_results, etc.)
+        """
+        if not self.workflow_data:
+            print("   Warning: No workflow data loaded")
+            return False
+
+        final_records = []
+
+        for record in self.workflow_data:
+            analysis = record.get('analysis', {})
+            term_decisions = analysis.get('archivist_term_decisions', {})
+
+            # Get the list of original subjects
+            original_subjects = analysis.get('subjects', [])
+            if not isinstance(original_subjects, list):
+                original_subjects = [original_subjects] if original_subjects else []
+
+            # Filter subjects: keep only approved ones
+            approved_subjects = []
+            for i, subject in enumerate(original_subjects):
+                term_id = f"subject-{i}"
+                decision = term_decisions.get(term_id)
+                # Keep if no decision (default approved) or explicitly approved
+                if decision is None or decision == 'approved':
+                    approved_subjects.append(subject)
+
+            # Add any custom subjects added by archivist
+            custom_subjects = analysis.get('archivist_custom_subjects', [])
+            for subj in custom_subjects:
+                label = subj.get('label', '') if isinstance(subj, dict) else subj
+                if label and label not in approved_subjects:
+                    approved_subjects.append(label)
+
+            # Filter subject headings: keep only approved ones
+            final_selected_terms = analysis.get('final_selected_terms', [])
+            approved_headings = []
+            for i, term in enumerate(final_selected_terms):
+                term_id = f"selected-{i}"
+                decision = term_decisions.get(term_id)
+
+                # Check if decision is cascade_rejected (object format)
+                if isinstance(decision, dict) and decision.get('status') == 'cascade_rejected':
+                    continue  # Skip cascade-rejected
+                elif decision == 'rejected':
+                    continue  # Skip explicitly rejected
+
+                # Keep approved or no decision (default approved)
+                approved_headings.append({
+                    'label': term.get('label', ''),
+                    'uri': term.get('uri', ''),
+                    'source': term.get('source', ''),
+                    'derived_from_subject': term.get('derived_from_subject', '')
+                })
+
+            # Add any custom terms added by archivist
+            custom_terms = analysis.get('archivist_custom_terms', [])
+            for term in custom_terms:
+                approved_headings.append({
+                    'label': term.get('label', ''),
+                    'uri': term.get('uri', ''),
+                    'source': term.get('source', 'Manual'),
+                    'derived_from_subject': ''
+                })
+
+            # Build clean record
+            clean_record = {
+                'folder': record.get('folder', ''),
+                'page_number': record.get('page_number', 0),
+                'image_path': record.get('image_path', ''),
+                'metadata': {
+                    'title': analysis.get('title', ''),
+                    'contributors': analysis.get('contributors', []),
+                    'genre': analysis.get('genre', ''),
+                    'description': analysis.get('description', ''),
+                    'ocr_text': analysis.get('ocr_text', ''),
+                    'format_media': analysis.get('format_media', ''),
+                    'date_on_drawing': analysis.get('date_on_drawing', ''),
+                    'sheet_info': analysis.get('sheet_info', ''),
+                    'named_entities': analysis.get('named_entities', []),
+                    'geographic_entities': analysis.get('geographic_entities', []),
+                    'content_warning': analysis.get('content_warning', ''),
+                    'subjects': approved_subjects,
+                    'subject_headings': approved_headings
+                },
+                'review_info': {
+                    'reviewed': analysis.get('archivist_reviewed', False),
+                    'archivist_name': analysis.get('archivist_name', ''),
+                    'review_date': analysis.get('archivist_review_date', ''),
+                    'archivist_notes': analysis.get('archivist_notes', '')
+                }
+            }
+
+            final_records.append(clean_record)
+
+        # Write final metadata
+        final_metadata_path = os.path.join(self.metadata_folder, "final_metadata.json")
+        try:
+            with open(final_metadata_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'generated_timestamp': datetime.now().isoformat(),
+                    'archivist_name': self.stats['archivist_name'],
+                    'total_records': len(final_records),
+                    'records': final_records
+                }, f, indent=2, ensure_ascii=False)
+
+            print(f"   Generated final_metadata.json with {len(final_records)} records")
+            return True
+        except Exception as e:
+            print(f"   Error generating final_metadata.json: {e}")
+            return False
+
+    def run(self, decisions_path=None):
+        """Main execution method.
+
+        Args:
+            decisions_path: Optional path to a specific decisions JSON file.
+                          If not provided, uses the latest export.
+        """
         print("\n" + "=" * 60)
-        print("Step 6: Integrate Archivist Edits")
+        print("Integrate Archivist Edits")
         print("=" * 60)
 
         print(f"\nUsing folder: {self.folder_name}")
 
-        # Find latest export
+        # Find or use specified export
         print("\n1. Finding archivist decisions export...")
-        export_path = self.find_latest_export()
-        if not export_path:
-            return False
-        print(f"   Found: {os.path.basename(export_path)}")
+        if decisions_path:
+            if not os.path.exists(decisions_path):
+                print(f"   Error: Specified decisions file not found: {decisions_path}")
+                return False
+            export_path = decisions_path
+            print(f"   Using specified file: {os.path.basename(export_path)}")
+        else:
+            export_path = self.find_latest_export()
+            if not export_path:
+                return False
+            print(f"   Found latest: {os.path.basename(export_path)}")
 
         # Load decisions
         print("\n2. Loading archivist decisions...")
@@ -606,15 +773,22 @@ class ArchivistEditsIntegrator:
         print("\n7. Updating Excel deliverable...")
         self.update_excel_deliverable()
 
+        # Generate final metadata
+        print("\n8. Generating final_metadata.json...")
+        self.generate_final_metadata()
+
         # Print summary
         self.print_summary()
 
+        final_metadata_path = os.path.join(self.metadata_folder, "final_metadata.json")
+
         print("\n" + "=" * 60)
-        print("STEP 6 COMPLETE")
+        print("INTEGRATION COMPLETE")
         print("=" * 60)
         print(f"\nUpdated files:")
         print(f"   {self.workflow_json_path}")
         print(f"   {self.workflow_excel_path}")
+        print(f"   {final_metadata_path}")
         print(f"\nOriginal files backed up to:")
         print(f"   {self.original_outputs_folder}")
         print("=" * 60)
@@ -622,31 +796,204 @@ class ArchivistEditsIntegrator:
         return True
 
 
+def list_available_folders(base_dir):
+    """List all available output folders."""
+    if not os.path.exists(base_dir):
+        return []
+
+    folders = []
+    for item in os.listdir(base_dir):
+        item_path = os.path.join(base_dir, item)
+        if os.path.isdir(item_path) and item.startswith("ArchImagesAI_"):
+            folders.append((item, item_path))
+
+    # Sort by modification time, newest first
+    folders.sort(key=lambda x: os.path.getmtime(x[1]), reverse=True)
+    return folders
+
+
+def list_available_exports(exports_folder):
+    """List all available JSON exports in the exports folder."""
+    if not os.path.exists(exports_folder):
+        return []
+
+    exports = []
+    for item in os.listdir(exports_folder):
+        if item.endswith('.json'):
+            item_path = os.path.join(exports_folder, item)
+            exports.append((item, item_path))
+
+    # Sort by modification time, newest first
+    exports.sort(key=lambda x: os.path.getmtime(x[1]), reverse=True)
+    return exports
+
+
+def prompt_for_folder(base_dir):
+    """Prompt user to select an output folder."""
+    folders = list_available_folders(base_dir)
+
+    if not folders:
+        print(f"No output folders found in: {base_dir}")
+        print("Please run Steps 1-4 first, then html-review.py.")
+        return None
+
+    print("\nAvailable output folders:")
+    print("-" * 60)
+    for i, (name, path) in enumerate(folders, 1):
+        mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
+        marker = " (newest)" if i == 1 else ""
+        print(f"  {i}. {name}{marker}")
+        print(f"      Modified: {mtime}")
+
+    print("-" * 60)
+    print(f"  Enter 1-{len(folders)} to select a folder")
+    print(f"  Or press Enter to use the newest folder (1)")
+    print(f"  Or type a full path to a folder")
+
+    while True:
+        choice = input("\nSelect output folder: ").strip()
+
+        # Default to newest
+        if choice == "":
+            return folders[0][1]
+
+        # Check if it's a number
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(folders):
+                return folders[idx][1]
+            else:
+                print(f"Invalid choice. Please enter 1-{len(folders)}.")
+                continue
+
+        # Check if it's a path
+        if os.path.isdir(choice):
+            return choice
+
+        print(f"Invalid input. Please enter a number or valid path.")
+
+
+def prompt_for_decisions(folder_path):
+    """Prompt user to select an archivist decisions JSON file."""
+    exports_folder = os.path.join(folder_path, "review", "exports")
+    exports = list_available_exports(exports_folder)
+
+    if not exports:
+        print(f"\nNo JSON export files found in: {exports_folder}")
+        print("Please export your review decisions from the HTML interface first.")
+        print("\nYou can also enter a full path to a decisions JSON file.")
+
+        while True:
+            path = input("\nPath to decisions JSON (or 'q' to quit): ").strip()
+            if path.lower() == 'q':
+                return None
+            if os.path.isfile(path) and path.endswith('.json'):
+                return path
+            print("Invalid path. Please enter a valid JSON file path.")
+
+    print("\nAvailable archivist decisions exports:")
+    print("-" * 60)
+    for i, (name, path) in enumerate(exports, 1):
+        mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
+        marker = " (newest)" if i == 1 else ""
+        print(f"  {i}. {name}{marker}")
+        print(f"      Modified: {mtime}")
+
+    print("-" * 60)
+    print(f"  Enter 1-{len(exports)} to select an export")
+    print(f"  Or press Enter to use the newest export (1)")
+    print(f"  Or type a full path to a JSON file")
+
+    while True:
+        choice = input("\nSelect decisions export: ").strip()
+
+        # Default to newest
+        if choice == "":
+            return exports[0][1]
+
+        # Check if it's a number
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(exports):
+                return exports[idx][1]
+            else:
+                print(f"Invalid choice. Please enter 1-{len(exports)}.")
+                continue
+
+        # Check if it's a path
+        if os.path.isfile(choice) and choice.endswith('.json'):
+            return choice
+
+        print(f"Invalid input. Please enter a number or valid JSON path.")
+
+
 def main():
     """Main entry point."""
-    print("Step 6: Integrate Archivist Edits")
+    parser = argparse.ArgumentParser(
+        description='Integrate archivist edits into workflow outputs and generate final metadata.',
+        epilog="""
+Examples:
+  python integrate-archivist-edits.py                           # Interactive prompts
+  python integrate-archivist-edits.py --decisions path/to.json  # Use specific export
+  python integrate-archivist-edits.py --folder /path/to/output  # Specify output folder
+        """
+    )
+    parser.add_argument('--decisions', '-d',
+                        help='Path to a specific archivist decisions JSON file')
+    parser.add_argument('--folder', '-f',
+                        help='Path to the output folder (defaults to interactive prompt)')
+    parser.add_argument('--yes', '-y', action='store_true',
+                        help='Skip confirmation prompt')
+
+    args = parser.parse_args()
+
+    print("Integrate Archivist Edits")
     print("=" * 60)
 
-    # Find newest output folder
     base_output_dir = os.path.join(script_dir, "output_folders")
-    folder_path = find_newest_folder(base_output_dir)
 
-    if not folder_path:
-        print(f"No output folders found in: {base_output_dir}")
-        print("Please run Steps 1-5 first.")
-        return 1
+    # Get output folder - either from args or interactive prompt
+    if args.folder:
+        folder_path = args.folder
+        if not os.path.exists(folder_path):
+            print(f"Error: Specified folder not found: {folder_path}")
+            return 1
+        print(f"Using folder: {os.path.basename(folder_path)}")
+    else:
+        folder_path = prompt_for_folder(base_output_dir)
+        if not folder_path:
+            return 1
+        print(f"\nSelected folder: {os.path.basename(folder_path)}")
 
-    print(f"Auto-selected newest folder: {os.path.basename(folder_path)}")
+    # Get decisions file - either from args or interactive prompt
+    if args.decisions:
+        decisions_path = args.decisions
+        if not os.path.exists(decisions_path):
+            print(f"Error: Specified decisions file not found: {decisions_path}")
+            return 1
+        print(f"Using decisions: {os.path.basename(decisions_path)}")
+    else:
+        decisions_path = prompt_for_decisions(folder_path)
+        if not decisions_path:
+            print("Operation cancelled.")
+            return 0
+        print(f"\nSelected decisions: {os.path.basename(decisions_path)}")
 
-    # Confirm with user
-    response = input("\nThis will modify deliverable files. Original files will be backed up. Continue? (yes/no): ").strip().lower()
-    if response not in ['yes', 'y']:
-        print("Operation cancelled.")
-        return 0
+    # Confirm with user unless --yes flag
+    if not args.yes:
+        print("\n" + "-" * 60)
+        print("Summary:")
+        print(f"  Output folder: {os.path.basename(folder_path)}")
+        print(f"  Decisions file: {os.path.basename(decisions_path)}")
+        print("-" * 60)
+        response = input("\nThis will modify deliverable files. Original files will be backed up. Continue? (yes/no): ").strip().lower()
+        if response not in ['yes', 'y']:
+            print("Operation cancelled.")
+            return 0
 
     # Create integrator and run
     integrator = ArchivistEditsIntegrator(folder_path)
-    success = integrator.run()
+    success = integrator.run(decisions_path=decisions_path)
 
     return 0 if success else 1
 

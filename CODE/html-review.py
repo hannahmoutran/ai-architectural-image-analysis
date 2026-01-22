@@ -44,7 +44,7 @@ class HTMLReviewBuilder:
 
     def load_json_data(self):
         """Load workflow JSON data."""
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         json_path = os.path.join(metadata_dir, "drawings_workflow.json")
 
         if not os.path.exists(json_path):
@@ -196,7 +196,6 @@ class HTMLReviewBuilder:
             .content-grid { grid-template-columns: 1fr; }
         }
 
-        .image-section { }
         .image-container {
             text-align: center;
             background: #f8f9fa;
@@ -219,8 +218,6 @@ class HTMLReviewBuilder:
             color: #666;
             word-break: break-all;
         }
-
-        .metadata-section { }
 
         .field-group {
             margin-bottom: 15px;
@@ -265,7 +262,6 @@ class HTMLReviewBuilder:
         }
         textarea.field-input.large { min-height: 150px; }
 
-        .list-field { }
         .list-item {
             display: flex;
             gap: 10px;
@@ -335,9 +331,27 @@ class HTMLReviewBuilder:
         }
         .vocab-term.approved { background: #d4edda; border-color: #28a745; }
         .vocab-term.rejected { background: #f8d7da; border-color: #dc3545; text-decoration: line-through; opacity: 0.7; }
+        .vocab-term.cascade-rejected { background: #ffe0e0; border-color: #ff9999; opacity: 0.6; }
+        .vocab-term.cascade-rejected .vocab-term-label { text-decoration: line-through; }
         .vocab-term.pending { background: #fff3cd; border-color: #ffc107; }
 
         .vocab-term-label { flex: 1; }
+        .derived-from-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: #e9ecef;
+            color: #6c757d;
+            border-radius: 3px;
+            white-space: nowrap;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .cascade-indicator {
+            font-size: 11px;
+            color: #dc3545;
+            font-style: italic;
+        }
         .vocab-term-source {
             font-size: 11px;
             padding: 2px 6px;
@@ -555,8 +569,11 @@ class HTMLReviewBuilder:
             }}
         }}
 
-        function saveFieldValue(recordId, fieldName, value, originalValue) {{
+        function saveFieldValue(recordId, fieldName, value) {{
             const edits = getStorage('edits-' + recordId, {{}});
+
+            // Get the original value from localStorage (stored on page load)
+            const originalValue = getStorage('original-field-' + fieldName + '-' + recordId, '');
 
             if (value !== originalValue) {{
                 edits[fieldName] = {{ value: value, original: originalValue, edited: true }};
@@ -673,21 +690,38 @@ class HTMLReviewBuilder:
             container.appendChild(div);
         }}
 
-        function setTermStatus(recordId, termId, status) {{
+        function setTermStatus(recordId, termId, status, isCascade = false) {{
             const termDecisions = getStorage('terms-' + recordId, {{}});
-            termDecisions[termId] = status;
+
+            // Store the status with cascade info if applicable
+            if (isCascade) {{
+                termDecisions[termId] = {{ status: 'cascade_rejected', cascadeFrom: status }};
+            }} else {{
+                termDecisions[termId] = status;
+            }}
             setStorage('terms-' + recordId, termDecisions);
 
             const termEl = document.getElementById('term-' + recordId + '-' + termId);
             if (termEl) {{
-                termEl.classList.remove('approved', 'rejected', 'pending');
-                termEl.classList.add(status);
+                termEl.classList.remove('approved', 'rejected', 'pending', 'cascade-rejected');
+
+                if (isCascade) {{
+                    termEl.classList.add('cascade-rejected');
+                    // Show cascade indicator
+                    const cascadeIndicator = termEl.querySelector('.cascade-indicator');
+                    if (cascadeIndicator) cascadeIndicator.style.display = 'inline';
+                }} else {{
+                    termEl.classList.add(status);
+                    // Hide cascade indicator
+                    const cascadeIndicator = termEl.querySelector('.cascade-indicator');
+                    if (cascadeIndicator) cascadeIndicator.style.display = 'none';
+                }}
 
                 // Show/hide appropriate buttons based on status
                 const rejectBtn = termEl.querySelector('.term-btn.reject');
                 const approveBtn = termEl.querySelector('.term-btn.approve');
 
-                if (status === 'rejected') {{
+                if (status === 'rejected' || isCascade) {{
                     // Show Restore button, hide Reject button
                     if (rejectBtn) rejectBtn.style.display = 'none';
                     if (approveBtn) {{
@@ -712,6 +746,55 @@ class HTMLReviewBuilder:
             }}
             autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
+        }}
+
+        function rejectSubjectWithCascade(recordId, subjectTermId, subjectText) {{
+            // First, reject the subject itself
+            setTermStatus(recordId, subjectTermId, 'rejected');
+
+            // Then, cascade-reject all subject headings derived from this subject
+            const record = document.getElementById('record-' + recordId);
+            if (!record) return;
+
+            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + subjectText + '"]');
+            derivedHeadings.forEach(headingEl => {{
+                const headingTermId = headingEl.id.replace('term-' + recordId + '-', '');
+                // Mark as cascade-rejected (not explicitly rejected)
+                setTermStatus(recordId, headingTermId, subjectText, true);
+            }});
+
+            // Store the cascade rejection mapping
+            const cascadeMap = getStorage('cascade-rejections-' + recordId, {{}});
+            cascadeMap[subjectText] = derivedHeadings.length;
+            setStorage('cascade-rejections-' + recordId, cascadeMap);
+        }}
+
+        function restoreSubjectWithCascade(recordId, subjectTermId, subjectText) {{
+            // First, restore the subject itself
+            setTermStatus(recordId, subjectTermId, 'approved');
+
+            // Then, restore all subject headings that were cascade-rejected from this subject
+            const record = document.getElementById('record-' + recordId);
+            if (!record) return;
+
+            const termDecisions = getStorage('terms-' + recordId, {{}});
+            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + subjectText + '"]');
+
+            derivedHeadings.forEach(headingEl => {{
+                const headingTermId = headingEl.id.replace('term-' + recordId + '-', '');
+                const decision = termDecisions[headingTermId];
+
+                // Only restore if it was cascade-rejected from this specific subject
+                // (not if the user explicitly rejected it)
+                if (decision && typeof decision === 'object' && decision.status === 'cascade_rejected' && decision.cascadeFrom === subjectText) {{
+                    setTermStatus(recordId, headingTermId, 'approved');
+                }}
+            }});
+
+            // Remove from cascade rejection mapping
+            const cascadeMap = getStorage('cascade-rejections-' + recordId, {{}});
+            delete cascadeMap[subjectText];
+            setStorage('cascade-rejections-' + recordId, cascadeMap);
         }}
 
         function acceptAllSelected(recordId) {{
@@ -882,6 +965,19 @@ class HTMLReviewBuilder:
                     setStorage(contribKey, contributors);
                 }}
             }}
+
+            // Store original values for text/textarea fields (for tracking edits including deletions)
+            const textFields = ['title', 'genre', 'description', 'ocr_text', 'format_media', 'date_on_drawing', 'sheet_info', 'content_warning'];
+            textFields.forEach(fieldName => {{
+                const storageKey = 'original-field-' + fieldName + '-' + recordId;
+                if (getStorage(storageKey, null) === null) {{
+                    const input = document.getElementById('field-' + recordId + '-' + fieldName);
+                    if (input) {{
+                        // Store the actual value from the input/textarea element
+                        setStorage(storageKey, input.value);
+                    }}
+                }}
+            }});
         }}
 
         function restoreState() {{
@@ -924,18 +1020,31 @@ class HTMLReviewBuilder:
 
                 // Restore term decisions and update button visibility
                 const termDecisions = getStorage('terms-' + recordId, {{}});
-                for (const [termId, status] of Object.entries(termDecisions)) {{
+                for (const [termId, decision] of Object.entries(termDecisions)) {{
                     const termEl = document.getElementById('term-' + recordId + '-' + termId);
                     if (termEl) {{
-                        termEl.classList.remove('approved', 'rejected', 'pending');
-                        termEl.classList.add(status);
+                        termEl.classList.remove('approved', 'rejected', 'pending', 'cascade-rejected');
+
+                        // Handle both old format (string) and new format (object with cascade info)
+                        let status;
+                        let isCascade = false;
+                        if (typeof decision === 'object' && decision.status === 'cascade_rejected') {{
+                            status = 'cascade_rejected';
+                            isCascade = true;
+                            termEl.classList.add('cascade-rejected');
+                            const cascadeIndicator = termEl.querySelector('.cascade-indicator');
+                            if (cascadeIndicator) cascadeIndicator.style.display = 'inline';
+                        }} else {{
+                            status = decision;
+                            termEl.classList.add(status);
+                        }}
 
                         // Update button visibility
                         const rejectBtn = termEl.querySelector('.term-btn.reject');
                         const approveBtn = termEl.querySelector('.term-btn.approve');
                         const defaultStatus = termEl.dataset.default;
 
-                        if (status === 'rejected') {{
+                        if (status === 'rejected' || isCascade) {{
                             if (rejectBtn) rejectBtn.style.display = 'none';
                             if (approveBtn) {{
                                 approveBtn.style.display = 'inline-block';
@@ -1080,27 +1189,33 @@ class HTMLReviewBuilder:
         2. SUBJECT HEADINGS (controlled vocabulary with URIs):
            - Selected: auto-accepted, can reject
            - Other: opt-in only
+
+        Cascade rejection: When a subject is rejected, all subject headings derived
+        from that subject are automatically cascade-rejected (shown visually).
         """
         html = '<div class="vocab-section">'
+
+        # Build a mapping of subject text to index for cascade rejection tracking
+        subjects = analysis.get('subjects', [])
+        subject_to_index = {subj: i for i, subj in enumerate(subjects)}
 
         # ==========================================
         # SECTION 1: SUBJECTS (AI-generated terms)
         # ==========================================
         html += '<div class="section-header">Subjects</div>'
-        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">AI-generated subject terms (no controlled vocabulary). Auto-accepted; reject if not applicable.</p>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">AI-generated subject terms. Rejecting a subject will also reject its derived subject headings below.</p>'
 
-        subjects = analysis.get('subjects', [])
         html += '<div class="vocab-group">'
         if subjects:
             for i, subject in enumerate(subjects):
                 term_id = f"subject-{i}"
                 html += f'''
-                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-category="subject">
+                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-category="subject" data-subject-text="{self.escape_html(subject)}">
                     <span class="vocab-term-label">{self.escape_html(subject)}</span>
                     <span class="vocab-term-source">AI</span>
                     <div class="term-actions">
-                        <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')">Reject</button>
-                        <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')" style="display:none;">Restore</button>
+                        <button class="term-btn reject" onclick="rejectSubjectWithCascade({record_id}, '{term_id}', '{self.escape_js_string(subject)}')">Reject</button>
+                        <button class="term-btn approve" onclick="restoreSubjectWithCascade({record_id}, '{term_id}', '{self.escape_js_string(subject)}')" style="display:none;">Restore</button>
                     </div>
                 </div>'''
         else:
@@ -1121,7 +1236,7 @@ class HTMLReviewBuilder:
         # SECTION 2: SUBJECT HEADINGS (controlled vocabulary)
         # ==========================================
         html += '<div class="section-header" style="margin-top: 25px;">Subject Headings</div>'
-        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Controlled vocabulary terms (LCSH, FAST, Getty) with URIs/permalinks.</p>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Controlled vocabulary terms (LCSH, FAST, Getty) with URIs/permalinks. Derived from subjects above.</p>'
 
         # Selected Subject Headings - default to APPROVED (opt-out)
         final_terms = analysis.get('final_selected_terms', [])
@@ -1137,15 +1252,30 @@ class HTMLReviewBuilder:
                 source = term.get('source', 'Unknown')
                 source_class = source.lower().replace(' ', '').replace('getty', '')
                 uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+
+                # Get the derived_from_subject for cascade rejection tracking
+                derived_from = term.get('derived_from_subject', '')
+                derived_from_escaped = self.escape_html(derived_from)
+                derived_from_js = self.escape_js_string(derived_from)
+
+                # Find the subject index for this heading
+                subject_index = subject_to_index.get(derived_from, -1)
+                derived_attr = f'data-derived-from="{derived_from_escaped}" data-derived-from-index="{subject_index}"' if derived_from else ''
+
+                # Show which subject this heading was derived from
+                derived_badge = f'<span class="derived-from-badge" title="Derived from subject: {derived_from_escaped}">from: {derived_from_escaped[:20]}{"..." if len(derived_from) > 20 else ""}</span>' if derived_from else ''
+
                 html += f'''
-                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="selected" data-category="heading">
+                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="selected" data-category="heading" {derived_attr}>
                     <span class="vocab-term-label">{label}</span>
+                    {derived_badge}
                     {uri_html}
                     <span class="vocab-term-source {source_class}">{source}</span>
                     <div class="term-actions">
                         <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')">Reject</button>
                         <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')" style="display:none;">Restore</button>
                     </div>
+                    <span class="cascade-indicator" style="display:none; font-size: 11px; color: #dc3545; margin-left: 10px;">(auto-rejected: parent subject rejected)</span>
                 </div>'''
             html += '</div>'
         else:
@@ -1310,7 +1440,6 @@ class HTMLReviewBuilder:
         for field_name, label, field_type in fields:
             value = analysis.get(field_name, '')
             escaped_value = self.escape_html(value)
-            original_js = self.escape_js_string(value)
 
             html += f'<div class="field-group">'
             html += f'<div class="field-label">{label} <span class="edit-indicator"></span></div>'
@@ -1319,14 +1448,12 @@ class HTMLReviewBuilder:
                 large_class = ' large' if field_type == 'textarea-large' else ''
                 html += f'''<textarea class="field-input{large_class}"
                     id="field-{global_id}-{field_name}"
-                    data-original="{escaped_value}"
-                    oninput="saveFieldValue({global_id}, '{field_name}', this.value, '{original_js}')">{escaped_value}</textarea>'''
+                    oninput="saveFieldValue({global_id}, '{field_name}', this.value)">{escaped_value}</textarea>'''
             else:
                 html += f'''<input type="text" class="field-input"
                     id="field-{global_id}-{field_name}"
                     value="{escaped_value}"
-                    data-original="{escaped_value}"
-                    onchange="saveFieldValue({global_id}, '{field_name}', this.value, '{original_js}')">'''
+                    onchange="saveFieldValue({global_id}, '{field_name}', this.value)">'''
 
             html += '</div>'
 

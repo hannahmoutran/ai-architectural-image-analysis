@@ -1074,26 +1074,26 @@ class ArchitecturalDrawingsEnhancer:
     
     def detect_workflow_type(self) -> bool:
         """Detect drawings workflow folder."""
-        # Check for expected files in the metadata/collection_metadata subfolder
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        # Check for expected files in the metadata subfolder
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         drawings_files = ['drawings_workflow.xlsx', 'drawings_workflow.json']
 
         has_drawings_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in drawings_files)
 
         if has_drawings_files:
             self.workflow_type = 'drawings'
-            self.excel_path = os.path.join(self.folder_path, "metadata", "collection_metadata", "drawings_workflow.xlsx")
+            self.excel_path = os.path.join(self.folder_path, "metadata", "drawings_workflow.xlsx")
             return True
         else:
             logging.error("No drawings_workflow.xlsx/json files found in the folder.")
             return False
-    
+
     def load_json_data(self) -> bool:
         """Load the JSON data from the appropriate workflow file."""
-        # Save the enhanced JSON in the collection_metadata folder
+        # Save the enhanced JSON in the metadata folder
         json_filename = f"{self.workflow_type}_workflow.json"
-        collection_metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
-        json_path = os.path.join(collection_metadata_dir, json_filename)
+        metadata_dir = os.path.join(self.folder_path, "metadata")
+        json_path = os.path.join(metadata_dir, json_filename)
 
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -1623,9 +1623,9 @@ class ArchitecturalDrawingsEnhancer:
             
             # Save the enhanced JSON
             json_filename = f"{self.workflow_type}_workflow.json"
-            # Saves in collection_metadata folder
-            collection_metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
-            json_path = os.path.join(collection_metadata_dir, json_filename)
+            # Saves in metadata folder
+            metadata_dir = os.path.join(self.folder_path, "metadata")
+            json_path = os.path.join(metadata_dir, json_filename)
             
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(enhanced_items, f, indent=2, ensure_ascii=False)
@@ -1641,9 +1641,9 @@ class ArchitecturalDrawingsEnhancer:
                             chronological_to_terms: Dict[str, str]) -> bool:
         """Create a detailed vocabulary mapping report organized by page for topics, geographic entities, and chronological terms."""
         try:
-            # Save vocabulary report in the collection_metadata folder
-            collection_metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
-            report_path = os.path.join(collection_metadata_dir, "vocabulary_mapping_report.txt")
+            # Save vocabulary report in the metadata folder
+            metadata_dir = os.path.join(self.folder_path, "metadata")
+            report_path = os.path.join(metadata_dir, "vocabulary_mapping_report.txt")
             
             # Create mappings of page number to topics/geographic entities and folder info
             page_to_topics = defaultdict(list)

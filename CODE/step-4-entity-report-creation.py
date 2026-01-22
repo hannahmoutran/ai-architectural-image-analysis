@@ -41,7 +41,7 @@ class EntityAuthority:
         image_files = ['image_workflow.xlsx', 'image_workflow.json']
         drawings_files = ['drawings_workflow.xlsx', 'drawings_workflow.json']
 
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         has_text_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in text_files)
         has_image_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in image_files)
         has_drawings_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in drawings_files)
@@ -55,11 +55,11 @@ class EntityAuthority:
         else:
             return False
         return True
-    
+
     def load_json_data(self) -> bool:
         """Load JSON data."""
         json_filename = f"{self.workflow_type}_workflow.json"
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         json_path = os.path.join(metadata_dir, json_filename)
         
         try:
@@ -330,7 +330,7 @@ class EntityAuthority:
     def create_authority_file(self, entity_records: Dict) -> bool:
         """Create comprehensive authority file."""
         try:
-            metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+            metadata_dir = os.path.join(self.folder_path, "metadata")
             authority_path = os.path.join(metadata_dir, "entity_authority.json")
 
             # Create structured authority data
@@ -416,7 +416,7 @@ class EntityAuthority:
     def create_human_readable_report(self, entity_records: Dict) -> bool:
         """Create human-readable authority report."""
         try:
-            metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+            metadata_dir = os.path.join(self.folder_path, "metadata")
             report_path = os.path.join(metadata_dir, "entity_authority_report.txt")
             
             with open(report_path, 'w', encoding='utf-8') as f:

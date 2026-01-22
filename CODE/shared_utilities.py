@@ -20,7 +20,7 @@ class APIStats:
 def find_newest_folder(base_directory: str) -> Optional[str]:
     """Find the newest folder containing the expected metadata structure.
 
-    Searches for folders that contain metadata/collection_metadata/drawings_workflow.xlsx,
+    Searches for folders that contain metadata/drawings_workflow.xlsx,
     looking both at the top level and one level deep (for nested folder structures).
     """
     if not os.path.exists(base_directory):
@@ -28,7 +28,7 @@ def find_newest_folder(base_directory: str) -> Optional[str]:
 
     def has_expected_structure(folder_path: str) -> bool:
         """Check if folder has the expected metadata structure."""
-        expected_file = os.path.join(folder_path, "metadata", "collection_metadata", "drawings_workflow.xlsx")
+        expected_file = os.path.join(folder_path, "metadata", "drawings_workflow.xlsx")
         return os.path.exists(expected_file)
 
     valid_folders = []

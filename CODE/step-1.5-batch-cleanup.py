@@ -60,7 +60,7 @@ class BatchCleanupProcessor:
         
     def detect_workflow_type(self) -> bool:
         """Detect workflow type and check for batch processing."""
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         text_files = ['text_workflow.xlsx', 'text_workflow.json']
         image_files = ['image_workflow.xlsx', 'image_workflow.json']
         
@@ -82,7 +82,7 @@ class BatchCleanupProcessor:
     def load_json_data(self) -> bool:
         """Load JSON data and check if batch processing was used."""
         json_filename = f"{self.workflow_type}_workflow.json"
-        metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         json_path = os.path.join(metadata_dir, json_filename)
         
         try:
@@ -519,7 +519,7 @@ class BatchCleanupProcessor:
         """Save updated JSON file."""
         try:
             json_filename = f"{self.workflow_type}_workflow.json"
-            metadata_dir = os.path.join(self.folder_path, "metadata", "collection_metadata")
+            metadata_dir = os.path.join(self.folder_path, "metadata")
             json_path = os.path.join(metadata_dir, json_filename)
             
             with open(json_path, 'w', encoding='utf-8') as f:
