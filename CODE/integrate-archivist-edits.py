@@ -60,30 +60,24 @@ class ArchivistEditsIntegrator:
             'records_with_edits': 0,
             'records_reviewed_only': 0,
             'total_field_edits': 0,
-            'total_term_decisions': 0,
-            'terms_approved': 0,
-            'terms_rejected': 0,
-            'terms_cascade_rejected': 0,
-            'subjects_rejected': 0,
-            'custom_terms_added': 0,
-            'custom_subjects_added': 0,
             'edits_by_field': {},
             'archivist_name': '',
             'export_timestamp': '',
             'integration_timestamp': '',
             # Detailed character-level metrics for text fields
             'text_field_metrics': {},  # {field_name: {chars_added, chars_deleted, chars_total_changed, edits_count}}
-            # Subject/heading detailed metrics
-            'subjects_original_count': 0,
-            'subjects_final_count': 0,
-            'subjects_added': 0,
-            'subjects_removed': 0,
-            'subjects_kept': 0,
-            'headings_original_count': 0,
-            'headings_final_count': 0,
-            'headings_added': 0,
-            'headings_removed': 0,
-            'headings_kept': 0,
+            # Subject metrics (the broad topics AI identified)
+            'subjects_total': 0,
+            'subjects_accepted': 0,
+            'subjects_rejected': 0,
+            'subjects_custom_added': 0,  # archivist-added subjects (not headings)
+            # Subject heading metrics (controlled vocabulary terms)
+            'ai_selected_total': 0,
+            'ai_selected_approved': 0,
+            'ai_selected_rejected': 0,
+            'ai_selected_cascade_rejected': 0,
+            'archivist_added_from_list': 0,
+            'archivist_added_custom': 0,
             # Per-record detailed metrics
             'per_record_metrics': [],
             # List field metrics (for contributors, entities, subjects)
@@ -144,6 +138,9 @@ class ArchivistEditsIntegrator:
                                             self.decisions_data.get('cataloger_name', 'Unknown'))
             self.stats['export_timestamp'] = self.decisions_data.get('export_timestamp', '')
             self.stats['total_records_in_export'] = len(self.decisions_data.get('decisions', []))
+            # Also get the total records from the original batch (may be larger if some weren't reviewed)
+            self.stats['total_records_in_batch'] = self.decisions_data.get('total_records',
+                                                    self.stats['total_records_in_export'])
 
             print(f"Loaded {self.stats['total_records_in_export']} record decisions")
             print(f"Archivist: {self.stats['archivist_name']}")
@@ -402,36 +399,44 @@ class ArchivistEditsIntegrator:
         """
         analysis = record.get('analysis', {})
 
-        # Track term decisions
+        # Track term decisions by type (based on term_id prefix)
         for term_id, decision in term_decisions.items():
-            self.stats['total_term_decisions'] += 1
-
-            # Handle both old format (string) and new format (object with cascade info)
+            # Determine the status from either string or dict format
             if isinstance(decision, dict):
                 status = decision.get('status', '')
                 cascade_from = decision.get('cascadeFrom', '')
-                if status == 'cascade_rejected':
-                    self.stats['terms_cascade_rejected'] += 1
-                    self.edit_history.append({
-                        'record_id': record_id,
-                        'field': 'vocabulary_term',
-                        'original_value': term_id,
-                        'new_value': f'cascade_rejected (from: {cascade_from})',
-                        'edit_type': 'term_cascade_rejected'
-                    })
-                else:
-                    # Unknown object format, treat as approved
-                    self.stats['terms_approved'] += 1
             else:
                 status = decision
-                if status == 'approved':
-                    self.stats['terms_approved'] += 1
-                elif status == 'rejected':
-                    self.stats['terms_rejected'] += 1
-                    # Check if this is a subject rejection
-                    if term_id.startswith('subject-'):
-                        self.stats['subjects_rejected'] += 1
+                cascade_from = ''
 
+            # Categorize by term type and status
+            if term_id.startswith('subject-'):
+                # Subject decisions (the broad topics)
+                if status == 'rejected':
+                    self.stats['subjects_rejected'] += 1
+                # Note: subjects_accepted is calculated later from total - rejected
+            elif term_id.startswith('selected-'):
+                # AI-selected subject headings
+                if status == 'cascade_rejected':
+                    self.stats['ai_selected_cascade_rejected'] += 1
+                elif status == 'rejected':
+                    self.stats['ai_selected_rejected'] += 1
+                # Note: ai_selected_approved is calculated later
+            elif term_id.startswith('other-'):
+                # Archivist added from vocabulary list (not AI-selected)
+                if status == 'approved':
+                    self.stats['archivist_added_from_list'] += 1
+
+            # Log to edit history
+            if status == 'cascade_rejected':
+                self.edit_history.append({
+                    'record_id': record_id,
+                    'field': 'vocabulary_term',
+                    'original_value': term_id,
+                    'new_value': f'cascade_rejected (from: {cascade_from})',
+                    'edit_type': 'term_cascade_rejected'
+                })
+            else:
                 self.edit_history.append({
                     'record_id': record_id,
                     'field': 'vocabulary_term',
@@ -455,7 +460,7 @@ class ArchivistEditsIntegrator:
         # Add custom terms to a dedicated field
         if custom_terms:
             analysis['archivist_custom_terms'] = custom_terms
-            self.stats['custom_terms_added'] += len(custom_terms)
+            self.stats['archivist_added_custom'] += len(custom_terms)
 
             for term in custom_terms:
                 self.edit_history.append({
@@ -476,7 +481,7 @@ class ArchivistEditsIntegrator:
                 label = subj.get('label', '')
                 if label and label not in existing_subjects:
                     existing_subjects.append(label)
-                    self.stats['custom_subjects_added'] += 1
+                    self.stats['subjects_custom_added'] += 1
 
                     self.edit_history.append({
                         'record_id': record_id,
@@ -533,15 +538,10 @@ class ArchivistEditsIntegrator:
             if term_decisions:
                 self.apply_term_decisions(record, term_decisions, record_id)
                 has_edits = True
-                record_metrics['term_decisions'] = {
-                    'total': len(term_decisions),
-                    'approved': sum(1 for v in term_decisions.values()
-                                    if v == 'approved' or (isinstance(v, dict) and v.get('status') == 'approved')),
-                    'rejected': sum(1 for v in term_decisions.values()
-                                    if v == 'rejected'),
-                    'cascade_rejected': sum(1 for v in term_decisions.values()
-                                            if isinstance(v, dict) and v.get('status') == 'cascade_rejected')
-                }
+                # Calculate per-record metrics by term type
+                record_metrics['term_decisions'] = self._calculate_record_term_metrics(
+                    term_decisions, record
+                )
 
             # Apply custom terms and subjects
             custom_terms = decision.get('custom_terms', [])
@@ -549,10 +549,11 @@ class ArchivistEditsIntegrator:
             if custom_terms or custom_subjects:
                 self.apply_custom_terms(record, custom_terms, custom_subjects, record_id)
                 has_edits = True
-                record_metrics['custom_additions'] = {
-                    'custom_terms': len(custom_terms),
-                    'custom_subjects': len(custom_subjects)
-                }
+                # Add custom additions to term_decisions metrics
+                if 'term_decisions' not in record_metrics:
+                    record_metrics['term_decisions'] = {}
+                record_metrics['term_decisions']['archivist_added_custom'] = len(custom_terms)
+                record_metrics['term_decisions']['subjects_custom_added'] = len(custom_subjects)
 
             # Add archivist metadata
             analysis = record.get('analysis', {})
@@ -576,60 +577,81 @@ class ArchivistEditsIntegrator:
 
         return True
 
+    def _calculate_record_term_metrics(self, term_decisions, record):
+        """Calculate term metrics for a single record, organized by type."""
+        analysis = record.get('analysis', {})
+
+        # Get totals from the record data
+        subjects = analysis.get('subjects', [])
+        if not isinstance(subjects, list):
+            subjects = [subjects] if subjects else []
+        subjects_total = len(subjects)
+
+        ai_selected = analysis.get('final_selected_terms', [])
+        ai_selected_total = len(ai_selected)
+
+        # Count decisions by type
+        subjects_rejected = 0
+        ai_rejected = 0
+        ai_cascade_rejected = 0
+        archivist_from_list = 0
+
+        for term_id, decision in term_decisions.items():
+            status = decision.get('status', decision) if isinstance(decision, dict) else decision
+
+            if term_id.startswith('subject-'):
+                if status == 'rejected':
+                    subjects_rejected += 1
+            elif term_id.startswith('selected-'):
+                if status == 'cascade_rejected':
+                    ai_cascade_rejected += 1
+                elif status == 'rejected':
+                    ai_rejected += 1
+            elif term_id.startswith('other-'):
+                if status == 'approved':
+                    archivist_from_list += 1
+
+        return {
+            'subjects': {
+                'total': subjects_total,
+                'accepted': subjects_total - subjects_rejected,
+                'rejected': subjects_rejected
+            },
+            'subject_headings': {
+                'ai_selected': {
+                    'total': ai_selected_total,
+                    'approved': ai_selected_total - ai_rejected - ai_cascade_rejected,
+                    'rejected': ai_rejected,
+                    'cascade_rejected': ai_cascade_rejected
+                },
+                'archivist_added_from_list': archivist_from_list
+            }
+        }
+
     def _calculate_aggregate_subject_heading_metrics(self):
         """Calculate aggregate metrics for subjects and headings across all records."""
         for record in self.workflow_data:
             analysis = record.get('analysis', {})
-            term_decisions = analysis.get('archivist_term_decisions', {})
 
-            # Count original subjects
+            # Count subjects (the broad topics AI identified)
             original_subjects = analysis.get('subjects', [])
             if not isinstance(original_subjects, list):
                 original_subjects = [original_subjects] if original_subjects else []
-            self.stats['subjects_original_count'] += len(original_subjects)
+            self.stats['subjects_total'] += len(original_subjects)
 
-            # Count subject decisions
-            for i, _ in enumerate(original_subjects):
-                term_id = f"subject-{i}"
-                decision = term_decisions.get(term_id)
-                if decision is None or decision == 'approved':
-                    self.stats['subjects_kept'] += 1
-                elif decision == 'rejected':
-                    self.stats['subjects_removed'] += 1
-
-            # Count custom subjects added
-            custom_subjects = analysis.get('archivist_custom_subjects', [])
-            if custom_subjects:
-                self.stats['subjects_added'] += len(custom_subjects)
-
-            # Calculate final subject count
-            self.stats['subjects_final_count'] = (
-                self.stats['subjects_kept'] + self.stats['subjects_added']
-            )
-
-            # Count original headings
+            # Count AI-selected subject headings (controlled vocabulary terms)
             final_selected_terms = analysis.get('final_selected_terms', [])
-            self.stats['headings_original_count'] += len(final_selected_terms)
+            self.stats['ai_selected_total'] += len(final_selected_terms)
 
-            # Count heading decisions
-            for i, _ in enumerate(final_selected_terms):
-                term_id = f"selected-{i}"
-                decision = term_decisions.get(term_id)
-                if isinstance(decision, dict) and decision.get('status') == 'cascade_rejected':
-                    self.stats['headings_removed'] += 1
-                elif decision == 'rejected':
-                    self.stats['headings_removed'] += 1
-                else:
-                    self.stats['headings_kept'] += 1
+        # Calculate derived stats
+        # subjects_accepted = total - rejected (rejected is counted in apply_term_decisions)
+        self.stats['subjects_accepted'] = self.stats['subjects_total'] - self.stats['subjects_rejected']
 
-            # Count custom terms added
-            custom_terms = analysis.get('archivist_custom_terms', [])
-            if custom_terms:
-                self.stats['headings_added'] += len(custom_terms)
-
-        # Calculate final heading count
-        self.stats['headings_final_count'] = (
-            self.stats['headings_kept'] + self.stats['headings_added']
+        # ai_selected_approved = total - rejected - cascade_rejected
+        self.stats['ai_selected_approved'] = (
+            self.stats['ai_selected_total'] -
+            self.stats['ai_selected_rejected'] -
+            self.stats['ai_selected_cascade_rejected']
         )
 
     def save_workflow_json(self):
@@ -771,11 +793,19 @@ class ArchivistEditsIntegrator:
             ("Records Reviewed Only (no edits):", self.stats['records_reviewed_only']),
             ("", ""),
             ("Total Field Edits:", self.stats['total_field_edits']),
-            ("Total Term Decisions:", self.stats['total_term_decisions']),
-            ("Terms Approved:", self.stats['terms_approved']),
-            ("Terms Rejected:", self.stats['terms_rejected']),
-            ("Custom Terms Added:", self.stats['custom_terms_added']),
-            ("Custom Subjects Added:", self.stats['custom_subjects_added']),
+            ("", ""),
+            ("SUBJECTS (AI-identified topics):", ""),
+            ("  Total:", self.stats['subjects_total']),
+            ("  Accepted:", self.stats['subjects_accepted']),
+            ("  Rejected:", self.stats['subjects_rejected']),
+            ("", ""),
+            ("SUBJECT HEADINGS (controlled vocab):", ""),
+            ("  AI-Selected Total:", self.stats['ai_selected_total']),
+            ("  AI-Selected Approved:", self.stats['ai_selected_approved']),
+            ("  AI-Selected Rejected:", self.stats['ai_selected_rejected']),
+            ("  AI-Selected Cascade Rejected:", self.stats['ai_selected_cascade_rejected']),
+            ("  Archivist Added from List:", self.stats['archivist_added_from_list']),
+            ("  Archivist Added Custom:", self.stats['archivist_added_custom']),
         ]
 
         row = 3
@@ -837,14 +867,24 @@ class ArchivistEditsIntegrator:
         ws.column_dimensions['E'].width = 40
 
     def _calculate_quality_scores(self):
-        """Calculate aggregate quality scores for LLM comparison."""
+        """Calculate aggregate quality scores for LLM comparison.
+
+        Returns human-readable format with both fraction strings and percentages.
+        """
         # Edit rate: proportion of records that needed edits
         total_records = self.stats['total_records_in_export']
-        edit_rate = (self.stats['records_with_edits'] / total_records) if total_records > 0 else 0
+        records_edited = self.stats['records_with_edits']
+        edit_rate_pct = (records_edited / total_records * 100) if total_records > 0 else 0
 
-        # Term approval rate
-        total_terms = self.stats['total_term_decisions']
-        term_approval_rate = (self.stats['terms_approved'] / total_terms) if total_terms > 0 else 1.0
+        # Subject acceptance rate
+        subjects_total = self.stats['subjects_total']
+        subjects_accepted = self.stats['subjects_accepted']
+        subject_acceptance_pct = (subjects_accepted / subjects_total * 100) if subjects_total > 0 else 100.0
+
+        # AI-selected heading approval rate
+        ai_total = self.stats['ai_selected_total']
+        ai_approved = self.stats['ai_selected_approved']
+        ai_approval_pct = (ai_approved / ai_total * 100) if ai_total > 0 else 100.0
 
         # Average text similarity across all edited text fields
         total_similarity = 0.0
@@ -856,29 +896,85 @@ class ArchivistEditsIntegrator:
         avg_text_similarity = (total_similarity / total_edits) if total_edits > 0 else 1.0
 
         return {
-            'edit_rate': round(edit_rate, 4),
-            'term_approval_rate': round(term_approval_rate, 4),
-            'avg_text_similarity': round(avg_text_similarity, 4)
+            'edit_rate': {
+                'display': f"{records_edited}/{total_records} items edited = {edit_rate_pct:.1f}%",
+                'value': round(edit_rate_pct, 2)
+            },
+            'subject_acceptance_rate': {
+                'display': f"{subjects_accepted}/{subjects_total} accepted = {subject_acceptance_pct:.1f}%",
+                'value': round(subject_acceptance_pct, 2)
+            },
+            'ai_heading_approval_rate': {
+                'display': f"{ai_approved}/{ai_total} approved = {ai_approval_pct:.2f}%",
+                'value': round(ai_approval_pct, 2)
+            },
+            'avg_text_similarity': {
+                'display': f"{avg_text_similarity*100:.1f}% similar (lower = more edits)",
+                'value': round(avg_text_similarity * 100, 2)
+            }
         }
 
     def _build_per_record_summary(self):
-        """Build concise per-record metrics for the report."""
+        """Build concise per-record metrics for the report with readable percentages."""
         records = []
         for record_metrics in self.stats['per_record_metrics']:
+            # Get term decisions for this record
+            term_decisions = record_metrics.get('term_decisions', {})
+
+            # Calculate percentages for subjects
+            subjects_info = term_decisions.get('subjects', {})
+            subj_total = subjects_info.get('total', 0)
+            subj_accepted = subjects_info.get('accepted', 0)
+            subj_rejected = subjects_info.get('rejected', 0)
+            subj_pct = (subj_accepted / subj_total * 100) if subj_total > 0 else 100.0
+
+            # Calculate percentages for subject headings
+            headings_info = term_decisions.get('subject_headings', {})
+            ai_info = headings_info.get('ai_selected', {})
+            ai_total = ai_info.get('total', 0)
+            ai_approved = ai_info.get('approved', 0)
+            ai_rejected = ai_info.get('rejected', 0)
+            ai_cascade = ai_info.get('cascade_rejected', 0)
+            ai_pct = (ai_approved / ai_total * 100) if ai_total > 0 else 100.0
+            archivist_added = headings_info.get('archivist_added_from_list', 0)
+
             record = {
                 'id': record_metrics['record_id'],
                 'text_fields': {},
                 'list_fields': {},
-                'terms': record_metrics.get('term_decisions', {})
+                'terms': {
+                    'subjects': {
+                        'summary': f"{subj_accepted}/{subj_total} accepted = {subj_pct:.0f}%",
+                        'total': subj_total,
+                        'accepted': subj_accepted,
+                        'rejected': subj_rejected
+                    },
+                    'subject_headings': {
+                        'ai_selected': {
+                            'summary': f"{ai_approved}/{ai_total} approved = {ai_pct:.0f}%",
+                            'total': ai_total,
+                            'approved': ai_approved,
+                            'rejected': ai_rejected,
+                            'cascade_rejected': ai_cascade
+                        },
+                        'archivist_added_from_list': archivist_added
+                    }
+                }
             }
 
             # Process field edits
             for field_name, metrics in record_metrics.get('field_edits', {}).items():
                 if 'similarity_ratio' in metrics:
                     # Text field
+                    similarity = metrics.get('similarity_ratio', 1.0)
+                    similarity_pct = similarity * 100
+                    chars_changed = metrics.get('chars_total_changed', 0)
                     record['text_fields'][field_name] = {
-                        'chars_changed': metrics.get('chars_total_changed', 0),
-                        'similarity': metrics.get('similarity_ratio', 1.0)
+                        'chars_changed': chars_changed,
+                        'similarity': {
+                            'display': f"{similarity_pct:.1f}% similar",
+                            'value': round(similarity_pct, 2)
+                        }
                     }
                 elif 'items_added' in metrics:
                     # List field
@@ -908,18 +1004,44 @@ class ArchivistEditsIntegrator:
         # Calculate quality scores
         quality_scores = self._calculate_quality_scores()
 
-        # Build text field summary
+        # Build text field summary with totals and percentages
         text_fields_summary = {}
+        total_chars_all_fields = 0
+        total_edits_count = 0
+        total_similarity_weighted = 0.0
+
         for field_name, metrics in self.stats['text_field_metrics'].items():
             edits = metrics['edits_count']
             avg_similarity = (metrics['similarity_sum'] / edits) if edits > 0 else 1.0
             avg_chars = (metrics['chars_total_changed'] / edits) if edits > 0 else 0
+            similarity_pct = avg_similarity * 100
+
             text_fields_summary[field_name] = {
                 'records_edited': edits,
+                'total_original_chars': metrics['total_original_length'],
                 'total_chars_changed': metrics['chars_total_changed'],
                 'avg_chars_changed': round(avg_chars, 1),
-                'avg_similarity': round(avg_similarity, 4)
+                'similarity': {
+                    'display': f"{similarity_pct:.1f}% similar",
+                    'value': round(similarity_pct, 2)
+                }
             }
+
+            total_chars_all_fields += metrics['chars_total_changed']
+            total_edits_count += edits
+            total_similarity_weighted += metrics['similarity_sum']
+
+        # Calculate overall text field averages
+        overall_avg_similarity = (total_similarity_weighted / total_edits_count * 100) if total_edits_count > 0 else 100.0
+
+        text_fields_totals = {
+            'total_fields_edited': total_edits_count,
+            'total_chars_changed_all_fields': total_chars_all_fields,
+            'overall_similarity': {
+                'display': f"{overall_avg_similarity:.1f}% similar across all text edits",
+                'value': round(overall_avg_similarity, 2)
+            }
+        }
 
         # Build list field summary
         list_fields_summary = {}
@@ -932,17 +1054,48 @@ class ArchivistEditsIntegrator:
                 'net_change': net
             }
 
-        # Subject headings summary
-        total_terms = self.stats['total_term_decisions']
-        approval_rate = (self.stats['terms_approved'] / total_terms) if total_terms > 0 else 1.0
+        # Subjects summary (broad topics AI identified)
+        subjects_total = self.stats['subjects_total']
+        subjects_accepted = self.stats['subjects_accepted']
+        subjects_rejected = self.stats['subjects_rejected']
+        acceptance_pct = (subjects_accepted / subjects_total * 100) if subjects_total > 0 else 100.0
+
+        subjects_summary = {
+            'summary': f"{subjects_accepted}/{subjects_total} accepted = {acceptance_pct:.1f}%",
+            'total': subjects_total,
+            'accepted': subjects_accepted,
+            'rejected': subjects_rejected,
+            'acceptance_rate': round(acceptance_pct, 2)
+        }
+        if self.stats['subjects_custom_added'] > 0:
+            subjects_summary['custom_added'] = self.stats['subjects_custom_added']
+
+        # Subject headings summary (controlled vocabulary terms)
+        ai_total = self.stats['ai_selected_total']
+        ai_approved = self.stats['ai_selected_approved']
+        ai_rejected = self.stats['ai_selected_rejected']
+        ai_cascade = self.stats['ai_selected_cascade_rejected']
+        ai_approval_pct = (ai_approved / ai_total * 100) if ai_total > 0 else 100.0
+        ai_rejection_pct = ((ai_rejected + ai_cascade) / ai_total * 100) if ai_total > 0 else 0
+
+        archivist_from_list = self.stats['archivist_added_from_list']
+        archivist_custom = self.stats['archivist_added_custom']
+
         subject_headings_summary = {
-            'original': self.stats['headings_original_count'],
-            'approved': self.stats['terms_approved'],
-            'rejected': self.stats['terms_rejected'],
-            'cascade_rejected': self.stats['terms_cascade_rejected'],
-            'custom_added': self.stats['custom_terms_added'] + self.stats['custom_subjects_added'],
-            'final': self.stats['headings_final_count'],
-            'approval_rate': round(approval_rate, 4)
+            'ai_selected': {
+                'summary': f"{ai_approved}/{ai_total} approved = {ai_approval_pct:.1f}%",
+                'total': ai_total,
+                'approved': ai_approved,
+                'rejected': ai_rejected,
+                'cascade_rejected': ai_cascade,
+                'approval_rate': round(ai_approval_pct, 2),
+                'rejection_rate': round(ai_rejection_pct, 2)
+            },
+            'archivist_additions': {
+                'from_vocabulary_list': archivist_from_list,
+                'custom_terms': archivist_custom,
+                'total_added': archivist_from_list + archivist_custom
+            }
         }
 
         # Build the simplified report
@@ -951,17 +1104,20 @@ class ArchivistEditsIntegrator:
                 'models_used': models_used,
                 'archivist': self.stats['archivist_name'],
                 'date': self.stats['integration_timestamp'][:10],
-                'total_records': self.stats['total_records_in_export'],
+                'total_records_in_batch': self.stats['total_records_in_batch'],
+                'records_reviewed': self.stats['total_records_in_export'],
                 'records_edited': self.stats['records_with_edits'],
                 'records_reviewed_only': self.stats['records_reviewed_only']
             },
-            'quality_scores': quality_scores,
-            'field_summary': {
+            'average_quality_scores': quality_scores,
+            'individual_field_summary': {
+                'text_fields_totals': text_fields_totals,
                 'text_fields': text_fields_summary,
-                'list_fields': list_fields_summary,
-                'subject_headings': subject_headings_summary
+                'list_fields': list_fields_summary
             },
-            'records': self._build_per_record_summary()
+            'subjects': subjects_summary,
+            'subject_headings': subject_headings_summary,
+            'individual_records': self._build_per_record_summary()
         }
 
         # Save report
@@ -1031,33 +1187,110 @@ class ArchivistEditsIntegrator:
             print(f"      All characters deleted: {total_deleted}")
             print(f"      Net change: {total_added - total_deleted:+d}")
 
-        # Subject metrics
-        print(f"\n--- Subject Changes ---")
-        print(f"   Original subjects: {self.stats['subjects_original_count']}")
-        print(f"   Subjects kept: {self.stats['subjects_kept']}")
-        print(f"   Subjects removed: {self.stats['subjects_removed']}")
-        print(f"   Subjects added by archivist: {self.stats['subjects_added']}")
-        print(f"   Final subject count: {self.stats['subjects_final_count']}")
-        net_subj = self.stats['subjects_final_count'] - self.stats['subjects_original_count']
-        print(f"   Net change: {net_subj:+d}")
+        # Subject metrics (broad topics)
+        print(f"\n--- Subjects (AI-identified topics) ---")
+        print(f"   Total: {self.stats['subjects_total']}")
+        print(f"   Accepted: {self.stats['subjects_accepted']}")
+        print(f"   Rejected: {self.stats['subjects_rejected']}")
+        if self.stats['subjects_custom_added'] > 0:
+            print(f"   Custom added: {self.stats['subjects_custom_added']}")
 
-        # Heading metrics
-        print(f"\n--- Subject Heading Changes ---")
-        print(f"   Original headings: {self.stats['headings_original_count']}")
-        print(f"   Headings kept: {self.stats['headings_kept']}")
-        print(f"   Headings removed: {self.stats['headings_removed']}")
-        print(f"   Headings added by archivist: {self.stats['headings_added']}")
-        print(f"   Final heading count: {self.stats['headings_final_count']}")
-        net_head = self.stats['headings_final_count'] - self.stats['headings_original_count']
-        print(f"   Net change: {net_head:+d}")
+        # Subject heading metrics (controlled vocabulary terms)
+        print(f"\n--- Subject Headings (controlled vocabulary) ---")
+        print(f"   AI-selected:")
+        print(f"      Total: {self.stats['ai_selected_total']}")
+        print(f"      Approved: {self.stats['ai_selected_approved']}")
+        print(f"      Rejected: {self.stats['ai_selected_rejected']}")
+        print(f"      Cascade rejected: {self.stats['ai_selected_cascade_rejected']}")
+        print(f"   Archivist added from list: {self.stats['archivist_added_from_list']}")
+        print(f"   Archivist added custom: {self.stats['archivist_added_custom']}")
 
-        print(f"\n--- Term Decisions ---")
-        print(f"Total decisions: {self.stats['total_term_decisions']}")
-        print(f"   Approved: {self.stats['terms_approved']}")
-        print(f"   Rejected (explicit): {self.stats['terms_rejected']}")
-        print(f"   Rejected (cascade): {self.stats['terms_cascade_rejected']}")
-        print(f"Custom terms added: {self.stats['custom_terms_added']}")
-        print(f"Custom subjects added: {self.stats['custom_subjects_added']}")
+    def _get_approved_other_terms(self, analysis, term_decisions):
+        """Get terms from vocabulary_search_results that were approved via 'other-*' decisions.
+
+        The HTML review page presents "other" vocabulary terms organized by source
+        (LCSH, FAST, Getty AAT, Getty TGN) with IDs like 'other-aat-5' or 'other-lcsh-3'.
+        This method reconstructs that same ordering to look up the approved terms.
+
+        Args:
+            analysis: The record's analysis dict containing vocabulary_search_results
+            term_decisions: Dict of term decisions including 'other-*' approvals
+
+        Returns:
+            List of term dicts with label, uri, source, and derived_from_subject
+        """
+        vocab_results = analysis.get('vocabulary_search_results', {})
+        if not vocab_results:
+            return []
+
+        # Build set of already-selected term labels (same logic as html-review.py)
+        final_terms = analysis.get('final_selected_terms', [])
+        selected_labels = set()
+        for term in final_terms:
+            selected_labels.add(term.get('label', '').lower())
+
+        # Group terms by source in the same order as html-review.py
+        source_map = {
+            'lcsh': 'LCSH',
+            'fast': 'FAST',
+            'aat': 'Getty AAT',
+            'tgn': 'Getty TGN'
+        }
+        sources = {'LCSH': [], 'FAST': [], 'Getty AAT': [], 'Getty TGN': []}
+
+        for orig_term, matches in vocab_results.items():
+            for match in matches:
+                source = match.get('source', 'Unknown')
+                label = match.get('label', '')
+                # Skip if this term was already selected
+                if label.lower() in selected_labels:
+                    continue
+                if source in sources:
+                    sources[source].append({
+                        'orig_term': orig_term,
+                        'label': label,
+                        'uri': match.get('uri', ''),
+                        'source': source
+                    })
+
+        # Find all approved 'other-*' terms
+        approved_terms = []
+        for term_id, decision in term_decisions.items():
+            if not term_id.startswith('other-'):
+                continue
+
+            # Only process approved decisions
+            if decision != 'approved':
+                continue
+
+            # Parse the term_id: 'other-{source_class}-{index}'
+            parts = term_id.split('-')
+            if len(parts) != 3:
+                continue
+
+            source_class = parts[1]  # e.g., 'aat', 'lcsh', 'fast', 'tgn'
+            try:
+                index = int(parts[2])
+            except ValueError:
+                continue
+
+            # Map source_class back to full source name
+            source_name = source_map.get(source_class)
+            if not source_name:
+                continue
+
+            # Get the term at that index (limited to first 15, same as HTML)
+            source_terms = sources.get(source_name, [])[:15]
+            if index < len(source_terms):
+                term = source_terms[index]
+                approved_terms.append({
+                    'label': term['label'],
+                    'uri': term['uri'],
+                    'source': term['source'],
+                    'derived_from_subject': term.get('orig_term', '')
+                })
+
+        return approved_terms
 
     def generate_final_metadata(self):
         """Generate final_metadata.json with only approved/clean data.
@@ -1129,6 +1362,18 @@ class ArchivistEditsIntegrator:
                     'uri': term.get('uri', ''),
                     'source': term.get('source', 'Manual'),
                     'derived_from_subject': ''
+                })
+
+            # Add "other-*" terms that were approved from the vocabulary list
+            # These are terms from vocabulary_search_results that weren't AI-selected
+            # but were manually approved by the archivist
+            other_terms = self._get_approved_other_terms(analysis, term_decisions)
+            for term in other_terms:
+                approved_headings.append({
+                    'label': term.get('label', ''),
+                    'uri': term.get('uri', ''),
+                    'source': term.get('source', ''),
+                    'derived_from_subject': term.get('derived_from_subject', '')
                 })
 
             # Build clean record

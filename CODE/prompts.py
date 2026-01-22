@@ -42,7 +42,6 @@ FIELDS TO EXTRACT:
 - Title: From title block or drawing text. Use [untitled] if none found.
 - Contributors: People/firms with roles, format as "Name (Role)" separated by semicolons. Roles: Architect, Draftsman, Engineer, Contractor, Owner, Firm, etc.
 - Genre: Drawing type (floor plan, elevation, section, detail, site plan, perspective, etc.). Be specific (e.g., "first floor plan"). List multiple types with semicolons.
-- OCR Text: All legible text from title block, labels, annotations, dimensions, notes, stamps. CRITICAL: Contextualize measurements and annotations with their location or element in the drawing. Do not list measurements in isolation - always pair them with what they measure. For example, instead of "11', cement" write "1st floor ceiling height: 11'; 1st floor material: cement". Group annotations by floor level, room, or building element so researchers understand what each measurement refers to.  
 - Description: Include a description of physical appearance, architectural content, style, decorative elements, and historical context. Make sure that every sentence is specific to this drawing. 
 - Format Media: Media type (ink on linen, blueprint, pencil on vellum, etc.) and condition if notable.
 - Subjects: Building types, materials, architectural features, decorative elements (max 10, separated by semicolons). These will be used as keywords to search for controlled vocabulary terms via API. 
@@ -50,13 +49,13 @@ FIELDS TO EXTRACT:
 - Sheet Info: Sheet number, project number, scale notation.
 - Named Entities: Non-geographic entities as "Name (Type)" - types: Architect, Firm, Person, Building, Organization, etc.
 - Geographic Entities: Locations as "City--State (City)", "State (State)", or "Country (Country)". Use full names.
-- Content Warning: Make a note of biased language/terminology, culturally sensitive material, or offensive or harmful language or imagery. Write 'None' if there is nothing of note.  Another archivist will assess how to handle the issue, your job is only to flag for review.   
+- Content Warning: Make a note of biased language/terminology, culturally sensitive material, or offensive or harmful language or imagery. Write 'None' if there is nothing of note.  Another archivist will assess how to handle the issue, your job is only to flag for review.
+- OCR Text: All legible text from title block, labels, annotations, dimensions, notes, stamps. CRITICAL: Contextualize measurements and annotations with their location or element in the drawing. Do not list measurements in isolation - always pair them with what they measure. For example, instead of "11', cement" write "1st floor ceiling height: 11'; 1st floor material: cement". Group annotations by floor level, room, or building element so researchers understand what each measurement refers to.
 {cls.UNCERTAINTY_INSTRUCTIONS}
 EXAMPLE OUTPUT:
 Title: First Floor Plan - Smith Residence
 Contributors: John Smith (Architect); ABC Engineering (Structural Engineer)
 Genre: floor plan
-OCR Text: Title block: "FIRST FLOOR PLAN - SMITH RESIDENCE" / Scale: 1/4" = 1'-0" / Date: MARCH 1925 / Room dimensions: Living room 18' x 24'; Dining room 14' x 16'; Kitchen 12' x 14' / Ceiling height: 9'-6" / Window annotations: double-hung, 3' x 5'
 Description: Floor plan in ink on tracing paper showing a four-bedroom residence with central hallway, formal living and dining rooms at front.
 Format Media: ink on tracing paper
 Subjects: residential architecture; floor plans; single-family homes
@@ -64,7 +63,8 @@ Date On Drawing: March 1925
 Sheet Info: Sheet 3 of 12
 Named Entities: John Smith (Architect); ABC Engineering (Firm)
 Geographic Entities: Austin--Texas (City); Texas (State)
-Content Warning: None"""
+Content Warning: None
+OCR Text: Title block: "FIRST FLOOR PLAN - SMITH RESIDENCE" / Scale: 1/4" = 1'-0" / Date: MARCH 1925 / Room dimensions: Living room 18' x 24'; Dining room 14' x 16'; Kitchen 12' x 14' / Ceiling height: 9'-6" / Window annotations: double-hung, 3' x 5'"""
 
     @classmethod
     def create_collection_context(cls, creator: str = "", title: str = "",
