@@ -1401,12 +1401,6 @@ class HTMLReviewBuilder:
             {record_data_js}
             <div class="record-header">
                 <div class="record-title">Record {global_id}: {self.escape_html(analysis.get('title', 'Untitled'))}</div>
-                <div class="record-status">
-                    <label class="reviewed-checkbox">
-                        <input type="checkbox" id="reviewed-{global_id}" onchange="setReviewed({global_id}, this.checked)">
-                        Reviewed
-                    </label>
-                </div>
             </div>
 
             <div class="content-grid">
@@ -1488,6 +1482,10 @@ class HTMLReviewBuilder:
                 <textarea class="field-input" id="notes-{global_id}"
                     placeholder="Add notes about this record..."
                     oninput="saveNotes({global_id}, this.value)"></textarea>
+                <label class="reviewed-checkbox" style="margin-top: 10px;">
+                    <input type="checkbox" id="reviewed-{global_id}" onchange="setReviewed({global_id}, this.checked)">
+                    Reviewed
+                </label>
             </div>
         </div>
         '''
