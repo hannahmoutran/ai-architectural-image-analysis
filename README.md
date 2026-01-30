@@ -10,11 +10,17 @@ This system uses LLMs (Claude, OpenAI, Gemini) to:
 - Enable archivist review through an interactive HTML interface
 - Generate professional deliverables for archival systems
 
+## Project Status
+
+**This is an experimental research project, not production software.** These scripts are being developed and used to analyze how well LLMs—both in general and specific models—handle architectural drawing materials from the Alexander Architectural Archives. The codebase is actively evolving as we test different approaches and evaluate results.
+
+
 ## Features
 
 - **Multi-provider support**: Choose between OpenAI, Anthropic Claude, or Google Gemini for AI processing
 - **Controlled vocabulary integration**: Automatically searches and selects terms from LCSH, FAST, Getty AAT, and Getty TGN
-- **Batch processing**: Handles large collections with automatic cost optimization; supports processing multiple collections sequentially
+- **OpenAI Batch API support**: 50% cost savings with OpenAI's Batch API for large collections
+- **Multi-collection processing**: Process multiple collections sequentially in a single run
 - **HTML review interface**: Web-based archivist review of AI-generated metadata
 - **Entity extraction**: Identifies architects, firms, buildings, and geographic locations with fuzzy matching deduplication
 
@@ -74,17 +80,20 @@ export GEMINI_API_KEY="your-key"
 ### Quick Start
 ```bash
 cd CODE
-python run.py          # Interactive menu
-python run.py 1        # Run Step 1 only
-python run.py all      # Run all steps
+python run.py          # Interactive pipeline runner
 python run.py --config # Show current configuration
 ```
+
+The interactive runner will prompt you to:
+1. Confirm running Steps 1-4
+2. Enable OpenAI Batch API processing (if using OpenAI) for 50% cost savings
+3. Generate the HTML review interface
 
 ### Configuration
 
 Edit `CODE/config.py` to set:
 - **IMAGE_FOLDER**: Name of your image folder (in `CODE/image_folders/`)
-- **IMAGE_FOLDERS**: List of folders for batch processing multiple collections (overrides IMAGE_FOLDER)
+- **IMAGE_FOLDERS**: List of folders to process sequentially (overrides IMAGE_FOLDER)
 - **STEP1_PROVIDER**: AI provider for image analysis (`openai`, `claude`, or `gemini`)
 - **STEP3_PROVIDER**: AI provider for vocabulary selection
 - **STEP1_MODEL**: Optional model override (or `None` for provider default)
@@ -107,6 +116,42 @@ Each folder runs through the complete pipeline (Steps 1-4) before moving to the 
 STEP1_PROVIDER = "claude"  # or "openai", "gemini"
 STEP3_PROVIDER = "claude"  # can use different provider for vocab selection
 STEP1_MODEL = "claude-opus-4-5-20250514"  # or None for provider default
+```
+
+### OpenAI Batch Processing
+
+When using OpenAI for Step 1 (image analysis), you can enable **Batch API processing** for 50% cost savings. This is offered as a prompt when running `python run.py`:
+
+```
+OpenAI detected for Step 1.
+Batch processing offers 50% cost savings but has up to 24h turnaround.
+Use batch processing? [y/n]:
+```
+
+**How it works:**
+- All images are submitted as a single batch job to OpenAI's Batch API
+- OpenAI processes the batch asynchronously (typically completes in minutes to hours, max 24h)
+- The script waits and polls for completion, showing progress updates every 10 minutes
+- Results are retrieved and processed automatically when complete
+
+**When to use batch processing:**
+- Large collections where cost savings matter
+- When you don't need immediate results
+- Processing can run overnight or while you work on other tasks
+
+**When to use individual processing:**
+- Small collections (< 6 images)
+- When you need results immediately
+- When debugging or testing
+
+You can also force batch processing via environment variable:
+```bash
+USE_BATCH_PROCESSING=true python run.py
+```
+
+Or disable it entirely:
+```bash
+USE_BATCH_PROCESSING=false python run.py
 ```
 
 ### Key Files
@@ -174,6 +219,10 @@ University of Texas at Austin Libraries
 - Karina Sanchez - Scholars Lab Librarian
 - Katie Pierce Meyer - Head of Architectural Collections
 - Josh Conrad - Digital Initiatives Archival Fellow
+
+## Development
+
+This repository was built with the assistance of [Claude Code](https://code.claude.com/docs/en/overview), Anthropic's AI coding assistant in VS Code.
 
 For questions about this repository, please contact [Hannah Moutran](hlm2454@my.utexas.edu)
 

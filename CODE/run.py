@@ -176,13 +176,25 @@ def interactive_menu():
     response = input("Proceed? [y/n]: ").strip().lower()
     if response not in ('y', 'yes'):
         print("Cancelled.")
-        return [], False
+        return [], False, False
+
+    # Check if OpenAI is being used for Step 1 - offer batch processing
+    use_batch = False
+    step1_config = get_step1_config()
+    if step1_config["provider"] == "openai":
+        print()
+        print("OpenAI detected for Step 1.")
+        print("Batch processing offers 50% cost savings but has up to 24h turnaround.")
+        batch_response = input("Use batch processing? [y/n]: ").strip().lower()
+        use_batch = batch_response in ('y', 'yes')
+        if use_batch:
+            print("Batch processing enabled.")
 
     print()
     html_response = input("Do you want to create the HTML review interface? [y/n]: ").strip().lower()
     include_html = html_response in ('y', 'yes')
 
-    return [1, 2, 3, 4], include_html
+    return [1, 2, 3, 4], include_html, use_batch
 
 
 def main():
@@ -192,7 +204,7 @@ def main():
         return 0
 
     # Get confirmation to run
-    steps_to_run, include_html = interactive_menu()
+    steps_to_run, include_html, use_batch = interactive_menu()
 
     if not steps_to_run:
         return 0
@@ -204,6 +216,9 @@ def main():
     # Track results per folder
     all_results = {}
 
+    # Set up batch processing environment if requested
+    batch_env = {"USE_BATCH_PROCESSING": "true"} if use_batch else None
+
     for folder_idx, folder in enumerate(folders):
         if len(folders) > 1:
             print("\n" + "#" * 60)
@@ -214,7 +229,9 @@ def main():
         output_folder = None  # Will be set after Step 1 completes
 
         for step in steps_to_run:
-            success = run_step(step, image_folder=folder, output_folder=output_folder)
+            # Pass batch env only for step 1
+            step_env = batch_env if step == 1 else None
+            success = run_step(step, env_overrides=step_env, image_folder=folder, output_folder=output_folder)
             folder_results[step] = success
 
             # After Step 1 completes successfully, find the output folder for subsequent steps
