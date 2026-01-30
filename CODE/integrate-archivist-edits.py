@@ -20,6 +20,15 @@ Usage:
     python integrate-archivist-edits.py                           # Use latest export
     python integrate-archivist-edits.py --decisions path/to.json  # Use specific export
     python run.py 6
+
+Analysis-Only Mode (for comparing multiple evaluators):
+    python integrate-archivist-edits.py --evaluator "Alice" --decisions alice_edits.json
+    python integrate-archivist-edits.py --evaluator "Bob" --decisions bob_edits.json
+
+    When --evaluator is specified:
+    - No workflow files are modified (read-only analysis)
+    - Generates named reports: edit_statistics_report_Alice.json, edit_changelog_Alice.json
+    - Useful for comparing how different evaluators edited the same LLM output
 """
 
 import os
@@ -43,8 +52,10 @@ from shared_utilities import find_newest_folder
 class ArchivistEditsIntegrator:
     """Integrates archivist edits from the HTML review interface back into workflow files."""
 
-    def __init__(self, folder_path):
+    def __init__(self, folder_path, evaluator_name=None):
         self.folder_path = folder_path
+        self.evaluator_name = evaluator_name
+        self.analysis_only = evaluator_name is not None  # Auto-enable when evaluator specified
         self.folder_name = os.path.basename(folder_path)
         self.metadata_folder = os.path.join(folder_path, "metadata")
         self.review_folder = os.path.join(folder_path, "review")
@@ -1166,17 +1177,22 @@ class ArchivistEditsIntegrator:
             }
         }
 
+        # Build batch_info with optional evaluator field
+        batch_info = {
+            'models_used': models_used,
+            'archivist': self.stats['archivist_name'],
+            'date': self.stats['integration_timestamp'][:10],
+            'total_records_in_batch': self.stats['total_records_in_batch'],
+            'records_reviewed': self.stats['total_records_in_export'],
+            'records_edited': self.stats['records_with_edits'],
+            'records_reviewed_only': self.stats['records_reviewed_only']
+        }
+        if self.evaluator_name:
+            batch_info['evaluator'] = self.evaluator_name
+
         # Build the simplified report
         report = {
-            'batch_info': {
-                'models_used': models_used,
-                'archivist': self.stats['archivist_name'],
-                'date': self.stats['integration_timestamp'][:10],
-                'total_records_in_batch': self.stats['total_records_in_batch'],
-                'records_reviewed': self.stats['total_records_in_export'],
-                'records_edited': self.stats['records_with_edits'],
-                'records_reviewed_only': self.stats['records_reviewed_only']
-            },
+            'batch_info': batch_info,
             'average_quality_scores': quality_scores,
             'individual_field_summary': {
                 'text_fields_totals': text_fields_totals,
@@ -1188,12 +1204,18 @@ class ArchivistEditsIntegrator:
             'individual_records': self._build_per_record_summary()
         }
 
-        # Save report
-        report_path = os.path.join(self.json_folder, "edit_statistics_report.json")
+        # Save report (with evaluator name in filename if specified)
+        if self.evaluator_name:
+            # Sanitize evaluator name for filename (replace spaces and special chars)
+            safe_name = re.sub(r'[^\w\-]', '_', self.evaluator_name)
+            report_filename = f"edit_statistics_report_{safe_name}.json"
+        else:
+            report_filename = "edit_statistics_report.json"
+        report_path = os.path.join(self.json_folder, report_filename)
         try:
             with open(report_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2, ensure_ascii=False)
-            print(f"   Generated edit_statistics_report.json")
+            print(f"   Generated {report_filename}")
             return report_path
         except Exception as e:
             print(f"   Error generating edit statistics report: {e}")
@@ -1210,12 +1232,20 @@ class ArchivistEditsIntegrator:
             'total_edits': len(self.edit_history),
             'edits': self.edit_history
         }
+        if self.evaluator_name:
+            changelog['evaluator'] = self.evaluator_name
 
-        changelog_path = os.path.join(self.json_folder, "edit_changelog.json")
+        # Include evaluator name in filename if specified
+        if self.evaluator_name:
+            safe_name = re.sub(r'[^\w\-]', '_', self.evaluator_name)
+            changelog_filename = f"edit_changelog_{safe_name}.json"
+        else:
+            changelog_filename = "edit_changelog.json"
+        changelog_path = os.path.join(self.json_folder, changelog_filename)
         try:
             with open(changelog_path, 'w', encoding='utf-8') as f:
                 json.dump(changelog, f, indent=2, ensure_ascii=False)
-            print(f"   Generated edit_changelog.json")
+            print(f"   Generated {changelog_filename}")
             return changelog_path
         except Exception as e:
             print(f"   Error generating edit changelog: {e}")
@@ -1498,10 +1528,15 @@ class ArchivistEditsIntegrator:
                           If not provided, uses the latest export.
         """
         print("\n" + "=" * 60)
-        print("Integrate Archivist Edits")
+        if self.analysis_only:
+            print(f"Analyze Archivist Edits (Evaluator: {self.evaluator_name})")
+        else:
+            print("Integrate Archivist Edits")
         print("=" * 60)
 
         print(f"\nUsing folder: {self.folder_name}")
+        if self.analysis_only:
+            print(f"Mode: Analysis only (no files will be modified)")
 
         # Find or use specified export
         print("\n1. Finding archivist decisions export...")
@@ -1527,9 +1562,12 @@ class ArchivistEditsIntegrator:
         if not self.load_workflow_json():
             return False
 
-        # Backup original files
-        print("\n4. Backing up original files...")
-        self.backup_original_files()
+        # Backup original files (skip in analysis-only mode)
+        if self.analysis_only:
+            print("\n4. Skipping backup (analysis-only mode)...")
+        else:
+            print("\n4. Backing up original files...")
+            self.backup_original_files()
 
         # Apply edits
         print("\n5. Applying archivist edits...")
@@ -1537,45 +1575,69 @@ class ArchivistEditsIntegrator:
             return False
         print(f"   Applied edits to {self.stats['records_with_edits']} records")
 
-        # Save updated JSON
-        print("\n6. Saving updated workflow JSON...")
-        if not self.save_workflow_json():
-            return False
+        # Save updated JSON (skip in analysis-only mode)
+        if self.analysis_only:
+            print("\n6. Skipping workflow JSON save (analysis-only mode)...")
+        else:
+            print("\n6. Saving updated workflow JSON...")
+            if not self.save_workflow_json():
+                return False
 
-        # Generate final metadata
-        print("\n7. Generating final_metadata.json...")
-        self.generate_final_metadata()
+        # Generate final metadata (skip in analysis-only mode)
+        if self.analysis_only:
+            print("\n7. Skipping final_metadata.json (analysis-only mode)...")
+        else:
+            print("\n7. Generating final_metadata.json...")
+            self.generate_final_metadata()
 
         # Generate edit statistics report
         print("\n8. Generating reports...")
         report_path = self.generate_edit_statistics_report()
         changelog_path = self.generate_edit_changelog()
 
-        # Create final Excel deliverable
-        print("\n9. Creating final Excel deliverable...")
-        excel_path = self.create_final_excel_deliverable()
+        # Create final Excel deliverable (skip in analysis-only mode)
+        if self.analysis_only:
+            print("\n9. Skipping Excel deliverable (analysis-only mode)...")
+            excel_path = None
+        else:
+            print("\n9. Creating final Excel deliverable...")
+            excel_path = self.create_final_excel_deliverable()
 
         # Print summary
         self.print_summary()
 
-        final_metadata_path = os.path.join(self.json_folder, "final_metadata.json")
-        edit_stats_path = os.path.join(self.json_folder, "edit_statistics_report.json")
-        edit_changelog_path = os.path.join(self.json_folder, "edit_changelog.json")
-        final_excel_path = os.path.join(self.metadata_folder, "final_deliverable.xlsx")
+        # Build output paths (with evaluator names if specified)
+        if self.evaluator_name:
+            safe_name = re.sub(r'[^\w\-]', '_', self.evaluator_name)
+            edit_stats_path = os.path.join(self.json_folder, f"edit_statistics_report_{safe_name}.json")
+            edit_changelog_path = os.path.join(self.json_folder, f"edit_changelog_{safe_name}.json")
+        else:
+            edit_stats_path = os.path.join(self.json_folder, "edit_statistics_report.json")
+            edit_changelog_path = os.path.join(self.json_folder, "edit_changelog.json")
 
         print("\n" + "=" * 60)
-        print("INTEGRATION COMPLETE")
-        print("=" * 60)
-        print(f"\nUpdated files:")
-        print(f"   {self.workflow_json_path}")
-        print(f"   {final_metadata_path}")
-        print(f"\nReports generated:")
-        print(f"   {edit_stats_path}")
-        print(f"   {edit_changelog_path}")
-        print(f"\nFinal deliverable:")
-        print(f"   {final_excel_path}")
-        print(f"\nOriginal files backed up to:")
-        print(f"   {self.original_outputs_folder}")
+        if self.analysis_only:
+            print(f"ANALYSIS COMPLETE (Evaluator: {self.evaluator_name})")
+            print("=" * 60)
+            print(f"\nReports generated:")
+            print(f"   {edit_stats_path}")
+            print(f"   {edit_changelog_path}")
+            print(f"\nNo files were modified (analysis-only mode).")
+        else:
+            final_metadata_path = os.path.join(self.json_folder, "final_metadata.json")
+            final_excel_path = os.path.join(self.metadata_folder, "final_deliverable.xlsx")
+            print("INTEGRATION COMPLETE")
+            print("=" * 60)
+            print(f"\nUpdated files:")
+            print(f"   {self.workflow_json_path}")
+            print(f"   {final_metadata_path}")
+            print(f"\nReports generated:")
+            print(f"   {edit_stats_path}")
+            print(f"   {edit_changelog_path}")
+            print(f"\nFinal deliverable:")
+            print(f"   {final_excel_path}")
+            print(f"\nOriginal files backed up to:")
+            print(f"   {self.original_outputs_folder}")
         print("=" * 60)
 
         return True
@@ -1721,12 +1783,23 @@ Examples:
   python integrate-archivist-edits.py                           # Interactive prompts
   python integrate-archivist-edits.py --decisions path/to.json  # Use specific export
   python integrate-archivist-edits.py --folder /path/to/output  # Specify output folder
+
+Analysis-only mode (for comparing multiple evaluators):
+  python integrate-archivist-edits.py -e "Alice" -d alice_edits.json -f /path/to/output
+  python integrate-archivist-edits.py -e "Bob" -d bob_edits.json -f /path/to/output
+
+  This generates edit_statistics_report_Alice.json and edit_statistics_report_Bob.json
+  without modifying any workflow files, allowing side-by-side comparison.
         """
     )
     parser.add_argument('--decisions', '-d',
                         help='Path to a specific archivist decisions JSON file')
     parser.add_argument('--folder', '-f',
                         help='Path to the output folder (defaults to interactive prompt)')
+    parser.add_argument('--evaluator', '-e',
+                        help='Evaluator name for analysis-only mode. When set, generates '
+                             'named statistics report without modifying workflow files. '
+                             'Useful for comparing multiple evaluators on the same output.')
     parser.add_argument('--yes', '-y', action='store_true',
                         help='Skip confirmation prompt')
 
@@ -1764,8 +1837,8 @@ Examples:
             return 0
         print(f"\nSelected decisions: {os.path.basename(decisions_path)}")
 
-    # Confirm with user unless --yes flag
-    if not args.yes:
+    # Confirm with user unless --yes flag or analysis-only mode
+    if not args.yes and not args.evaluator:
         print("\n" + "-" * 60)
         print("Summary:")
         print(f"  Output folder: {os.path.basename(folder_path)}")
@@ -1775,9 +1848,17 @@ Examples:
         if response not in ['yes', 'y']:
             print("Operation cancelled.")
             return 0
+    elif args.evaluator:
+        print("\n" + "-" * 60)
+        print("Summary (Analysis-Only Mode):")
+        print(f"  Output folder: {os.path.basename(folder_path)}")
+        print(f"  Decisions file: {os.path.basename(decisions_path)}")
+        print(f"  Evaluator: {args.evaluator}")
+        print("  (No files will be modified)")
+        print("-" * 60)
 
     # Create integrator and run
-    integrator = ArchivistEditsIntegrator(folder_path)
+    integrator = ArchivistEditsIntegrator(folder_path, evaluator_name=args.evaluator)
     success = integrator.run(decisions_path=decisions_path)
 
     return 0 if success else 1

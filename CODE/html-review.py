@@ -20,6 +20,7 @@ import sys
 import json
 import math
 import shutil
+import re
 from datetime import datetime
 
 # Add CODE directory to path for imports
@@ -41,6 +42,8 @@ class HTMLReviewBuilder:
         self.review_folder = None
         self.images_folder = None
         self.folder_name = os.path.basename(folder_path)
+        self.collection_name = ''
+        self.model_used = ''
 
     def load_json_data(self):
         """Load workflow JSON data."""
@@ -72,11 +75,43 @@ class HTMLReviewBuilder:
                 self.workflow_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
             print(f"Loaded {len(self.data_items)} records from workflow JSON")
+
+            # Extract collection name from first record's folder field
+            if self.data_items and isinstance(self.data_items[0], dict):
+                self.collection_name = self.data_items[0].get('folder', '')
+            else:
+                self.collection_name = ''
+
+            # Extract model from logs
+            self.model_used = self._extract_model_from_logs()
+
             return True
 
         except Exception as e:
             print(f"Error loading JSON: {e}")
             return False
+
+    def _extract_model_from_logs(self):
+        """Extract model used from token usage logs in the logs folder."""
+        logs_folder = os.path.join(self.folder_path, "logs")
+
+        if not os.path.exists(logs_folder):
+            return 'unknown-model'
+
+        for filename in os.listdir(logs_folder):
+            # Only process token usage logs, skip step2 API logs (not LLM)
+            if filename.endswith("_token_usage_log.txt") and "step2_vocab_api" not in filename:
+                filepath = os.path.join(logs_folder, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    match = re.search(r'Model used:\s*(.+?)(?:\n|$)', content)
+                    if match:
+                        return match.group(1).strip()
+                except Exception:
+                    pass
+
+        return 'unknown-model'
 
     def create_review_folder(self):
         """Create the review folder structure."""
@@ -518,6 +553,8 @@ class HTMLReviewBuilder:
         return f"""
         const STORAGE_PREFIX = 'arch-review-{self.workflow_timestamp}-';
         const WORKFLOW_FOLDER = '{self.escape_js_string(self.folder_name)}';
+        const COLLECTION_NAME = '{self.escape_js_string(self.collection_name)}';
+        const MODEL_USED = '{self.escape_js_string(self.model_used)}';
 
         function setStorage(key, value) {{
             try {{
@@ -1117,17 +1154,26 @@ class HTMLReviewBuilder:
             const exportData = {{
                 export_timestamp: new Date().toISOString(),
                 workflow_folder: WORKFLOW_FOLDER,
+                collection_name: COLLECTION_NAME,
+                model_used: MODEL_USED,
                 archivist_name: archivistName,
                 total_records: totalRecords,
                 reviewed_count: decisions.filter(d => d.reviewed).length,
                 decisions: decisions
             }};
 
+            // Build filename: collection_model_archivist_date.json
+            const safeName = archivistName.replace(/[^\\w\\-]/g, '_');
+            const safeCollection = COLLECTION_NAME.replace(/[^\\w\\-]/g, '_') || 'unknown';
+            const safeModel = MODEL_USED.replace(/[^\\w\\-]/g, '_') || 'unknown';
+            const dateStr = new Date().toISOString().split('T')[0];
+            const filename = `${{safeCollection}}_${{safeModel}}_${{safeName}}_${{dateStr}}.json`;
+
             const blob = new Blob([JSON.stringify(exportData, null, 2)], {{ type: 'application/json' }});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'archivist-decisions-' + new Date().toISOString().split('T')[0] + '.json';
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             setTimeout(() => {{
@@ -1135,7 +1181,7 @@ class HTMLReviewBuilder:
                 a.remove();
             }}, 100);
 
-            alert('Exported ' + decisions.length + ' record decisions.');
+            alert('Exported ' + decisions.length + ' record decisions to:\\n' + filename);
         }}
 
         document.addEventListener('DOMContentLoaded', restoreState);
