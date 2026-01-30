@@ -8,8 +8,6 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 import anthropic
 import tenacity
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment
 from prompts import ArchitecturalDrawingPrompts
 from shared_utilities import APIStats, find_newest_folder
 
@@ -241,25 +239,24 @@ class ArchitecturalDrawingsVocabularyProcessor:
         self.model_name = model_name
         self.workflow_type = None
         self.json_data = None
-        self.excel_path = None
+        self.json_folder = None
         self.collection_context = ""
         self.vocabulary_selector = None
         self.was_batch_processed = False
 
     def detect_workflow_type(self) -> bool:
         """Detect workflow type and check for vocabulary enhancement."""
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        drawings_files = ['drawings_workflow.xlsx', 'drawings_workflow.json']
+        json_folder = os.path.join(self.folder_path, "metadata", "json")
+        json_path = os.path.join(json_folder, "drawings_workflow.json")
 
-        has_drawings_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in drawings_files)
-
-        if has_drawings_files:
+        if os.path.exists(json_path):
             self.workflow_type = 'drawings'
-            self.excel_path = os.path.join(metadata_dir, 'drawings_workflow.xlsx')
+            self.json_folder = json_folder
         else:
-            logging.error("Could not find drawings_workflow files in metadata.")
+            logging.error("Could not find drawings_workflow.json in metadata/json.")
             return False
 
+        metadata_dir = os.path.join(self.folder_path, "metadata")
         vocab_report_path = os.path.join(metadata_dir, 'vocabulary_mapping_report.txt')
         if not os.path.exists(vocab_report_path):
             logging.error("Vocabulary enhancement (step 2) must be run before step 3.")
@@ -270,8 +267,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
     def load_json_data(self) -> bool:
         """Load JSON data and verify vocabulary terms exist."""
         json_filename = f"{self.workflow_type}_workflow.json"
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        json_path = os.path.join(metadata_dir, json_filename)
+        json_path = os.path.join(self.json_folder, json_filename)
 
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -498,8 +494,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
                 updated_items.append(api_stats_data)
 
             json_filename = f"{self.workflow_type}_workflow.json"
-            metadata_dir = os.path.join(self.folder_path, "metadata")
-            json_path = os.path.join(metadata_dir, json_filename)
+            json_path = os.path.join(self.json_folder, json_filename)
 
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(updated_items, f, indent=2, ensure_ascii=False)
@@ -511,67 +506,59 @@ class ArchitecturalDrawingsVocabularyProcessor:
             logging.error(f"Error updating JSON data: {e}")
             return False
 
-    def update_excel_file(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
-        """Update Excel file with selected vocabulary terms."""
+    def create_vocabulary_mapping_json(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
+        """Create vocabulary_mapping.json with structured vocabulary data."""
         try:
-            wb = load_workbook(self.excel_path)
-            analysis_sheet = wb['Analysis']
-
-            topic_vocab_col = None
-            for col in range(1, analysis_sheet.max_column + 1):
-                header_value = analysis_sheet.cell(row=1, column=col).value
-                if header_value and "Topic Vocabulary Terms" in header_value:
-                    topic_vocab_col = col
-                    break
-
-            if topic_vocab_col is None:
-                logging.error("Topic Vocabulary Terms column not found. Please run step 2 first.")
-                return False
-
-            header_cell = analysis_sheet.cell(row=1, column=topic_vocab_col)
-            header_cell.value = "Selected Topic Vocabulary Terms"
-
             data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
 
-            updated_rows = 0
-            for entry_index, result_data in selection_results.items():
-                row_num = entry_index + 2
+            vocabulary_mapping = {
+                "generated_timestamp": datetime.now().isoformat(),
+                "model": self.model_name,
+                "drawings": []
+            }
 
-                if entry_index < len(data_items):
-                    selected_vocab_terms = data_items[entry_index]['analysis'].get('final_selected_terms', [])
+            for i, item in enumerate(data_items):
+                drawing_data = {
+                    "folder": item.get('folder', 'Unknown'),
+                    "page_number": item.get('page_number', 'Unknown'),
+                    "vocabulary_search_results": {},
+                    "final_selected_terms": []
+                }
 
-                    if selected_vocab_terms:
-                        formatted_terms = []
-                        for term in selected_vocab_terms:
-                            if isinstance(term, dict):
-                                label = term.get('label', '')
-                                uri = term.get('uri', '')
-                                source = term.get('source', '')
-                                formatted_terms.append(f"{label} ({uri}) [{source}]")
+                # Get vocabulary search results and mark which are selected
+                vocab_search_results = item['analysis'].get('vocabulary_search_results', {})
+                selected_terms = item['analysis'].get('final_selected_terms', [])
 
-                        cell_value = "; ".join(formatted_terms)
-                        updated_rows += 1
-                    else:
-                        cell_value = ""
-                else:
-                    cell_value = ""
+                # Get selected URIs for marking
+                selected_uris = set()
+                for term in selected_terms:
+                    if isinstance(term, dict) and term.get('uri'):
+                        selected_uris.add(term['uri'])
 
-                cell = analysis_sheet.cell(row=row_num, column=topic_vocab_col)
-                cell.value = cell_value
-                cell.alignment = Alignment(vertical='top', wrap_text=True)
+                # Process vocabulary search results and add 'selected' flag
+                for topic, terms in vocab_search_results.items():
+                    marked_terms = []
+                    for term in terms:
+                        if isinstance(term, dict):
+                            term_copy = term.copy()
+                            term_copy['selected'] = term.get('uri', '') in selected_uris
+                            marked_terms.append(term_copy)
+                    drawing_data['vocabulary_search_results'][topic] = marked_terms
 
-            for row_num in range(2, analysis_sheet.max_row + 1):
-                entry_index = row_num - 2
-                if entry_index not in selection_results:
-                    cell = analysis_sheet.cell(row=row_num, column=topic_vocab_col)
-                    cell.value = ""
+                drawing_data['final_selected_terms'] = selected_terms
+                vocabulary_mapping['drawings'].append(drawing_data)
 
-            wb.save(self.excel_path)
-            print(f"Updated Excel file with selected vocabulary terms in {updated_rows} rows")
+            # Save to metadata/json folder
+            vocab_mapping_path = os.path.join(self.json_folder, "vocabulary_mapping.json")
+
+            with open(vocab_mapping_path, 'w', encoding='utf-8') as f:
+                json.dump(vocabulary_mapping, f, indent=2, ensure_ascii=False)
+
+            print(f"Created vocabulary mapping JSON: {vocab_mapping_path}")
             return True
 
         except Exception as e:
-            logging.error(f"Error updating Excel file: {e}")
+            logging.error(f"Error creating vocabulary mapping JSON: {e}")
             return False
 
     def create_vocabulary_mapping_report(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
@@ -691,7 +678,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
         if not self.update_json_data(selection_results):
             return False
 
-        if not self.update_excel_file(selection_results):
+        if not self.create_vocabulary_mapping_json(selection_results):
             return False
 
         if not self.create_vocabulary_mapping_report(selection_results):

@@ -50,7 +50,6 @@ FIELDS TO EXTRACT:
 - Named Entities: Non-geographic entities as "Name (Type)" - types: Architect, Firm, Person, Building, Organization, etc.
 - Geographic Entities: Locations as "City--State (City)", "State (State)", or "Country (Country)". Use full names.
 - Content Warning: Make a note of biased language/terminology, culturally sensitive material, or offensive or harmful language or imagery. Write 'None' if there is nothing of note.  Another archivist will assess how to handle the issue, your job is only to flag for review.
-- OCR Text: All legible text from title block, labels, annotations, dimensions, notes, stamps. CRITICAL: Contextualize measurements and annotations with their location or element in the drawing. Do not list measurements in isolation - always pair them with what they measure. For example, instead of "11', cement" write "1st floor ceiling height: 11'; 1st floor material: cement". Group annotations by floor level, room, or building element so researchers understand what each measurement refers to.
 {cls.UNCERTAINTY_INSTRUCTIONS}
 EXAMPLE OUTPUT:
 Title: First Floor Plan - Smith Residence
@@ -63,8 +62,7 @@ Date On Drawing: March 1925
 Sheet Info: Sheet 3 of 12
 Named Entities: John Smith (Architect); ABC Engineering (Firm)
 Geographic Entities: Austin--Texas (City); Texas (State)
-Content Warning: None
-OCR Text: Title block: "FIRST FLOOR PLAN - SMITH RESIDENCE" / Scale: 1/4" = 1'-0" / Date: MARCH 1925 / Room dimensions: Living room 18' x 24'; Dining room 14' x 16'; Kitchen 12' x 14' / Ceiling height: 9'-6" / Window annotations: double-hung, 3' x 5'"""
+Content Warning: None"""
 
     @classmethod
     def create_collection_context(cls, creator: str = "", title: str = "",

@@ -9,6 +9,8 @@ from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 import re
 from shared_utilities import find_newest_folder
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 
 # Fuzzy matching imports - try rapidfuzz first (faster), fallback to fuzzywuzzy
 try:
@@ -32,26 +34,24 @@ class EntityAuthority:
         self.folder_path = folder_path
         self.workflow_type = None
         self.json_data = None
+        self.json_folder = None
         self.similarity_threshold = similarity_threshold
         self.entity_clusters = {}  # Maps normalized names to canonical forms
         
     def detect_workflow_type(self) -> bool:
         """Detect workflow type."""
-        text_files = ['text_workflow.xlsx', 'text_workflow.json']
-        image_files = ['image_workflow.xlsx', 'image_workflow.json']
-        drawings_files = ['drawings_workflow.xlsx', 'drawings_workflow.json']
+        json_folder = os.path.join(self.folder_path, "metadata", "json")
 
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        has_text_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in text_files)
-        has_image_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in image_files)
-        has_drawings_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in drawings_files)
-
-        if has_text_files:
+        # Check for workflow JSON files in metadata/json folder
+        if os.path.exists(os.path.join(json_folder, "text_workflow.json")):
             self.workflow_type = 'text'
-        elif has_image_files:
+            self.json_folder = json_folder
+        elif os.path.exists(os.path.join(json_folder, "image_workflow.json")):
             self.workflow_type = 'image'
-        elif has_drawings_files:
+            self.json_folder = json_folder
+        elif os.path.exists(os.path.join(json_folder, "drawings_workflow.json")):
             self.workflow_type = 'drawings'
+            self.json_folder = json_folder
         else:
             return False
         return True
@@ -59,8 +59,7 @@ class EntityAuthority:
     def load_json_data(self) -> bool:
         """Load JSON data."""
         json_filename = f"{self.workflow_type}_workflow.json"
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        json_path = os.path.join(metadata_dir, json_filename)
+        json_path = os.path.join(self.json_folder, json_filename)
         
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -248,10 +247,9 @@ class EntityAuthority:
                 entities = expanded_entities
                 
                 # Extract context for additional analysis
-                # Support all workflow types: text (cleaned_text), image (text_transcription), drawings (ocr_text/description)
+                # Support all workflow types: text (cleaned_text), image (text_transcription), drawings (description)
                 text_content = (analysis.get('cleaned_text', '') or
                                analysis.get('text_transcription', '') or
-                               analysis.get('ocr_text', '') or
                                analysis.get('description', ''))
                 # Support toc_entry (text/image workflows) or title (drawings workflow)
                 toc_entry = analysis.get('toc_entry', '') or analysis.get('title', '')
@@ -330,8 +328,7 @@ class EntityAuthority:
     def create_authority_file(self, entity_records: Dict) -> bool:
         """Create comprehensive authority file."""
         try:
-            metadata_dir = os.path.join(self.folder_path, "metadata")
-            authority_path = os.path.join(metadata_dir, "entity_authority.json")
+            authority_path = os.path.join(self.json_folder, "entity_authority.json")
 
             # Create structured authority data
             authority_data = {
@@ -483,6 +480,180 @@ class EntityAuthority:
             logging.error(f"Error creating report: {e}")
             return False
     
+    def create_final_excel_deliverable(self, entity_records: Dict) -> bool:
+        """Create final Excel workbook with 3 sheets (Edit Statistics added later by integrate-archivist-edits)."""
+        try:
+            metadata_dir = os.path.join(self.folder_path, "metadata")
+            excel_path = os.path.join(metadata_dir, "final_deliverable.xlsx")
+
+            wb = Workbook()
+
+            # Define styles
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF")
+            header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell_alignment = Alignment(vertical="top", wrap_text=True)
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # ==================== SHEET 1: Final Metadata ====================
+            ws_metadata = wb.active
+            ws_metadata.title = "Final Metadata"
+
+            # Get data excluding API stats
+            data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+
+            # Load vocabulary mapping to get selected subject headings
+            vocab_mapping_path = os.path.join(self.json_folder, "vocabulary_mapping.json")
+            selected_headings_by_page = {}  # key: (folder, page_number) -> list of selected terms
+
+            if os.path.exists(vocab_mapping_path):
+                with open(vocab_mapping_path, 'r', encoding='utf-8') as f:
+                    vocab_data = json.load(f)
+
+                for drawing in vocab_data.get('drawings', []):
+                    folder = drawing.get('folder', '')
+                    page_num = drawing.get('page_number', 0)
+                    key = (folder, page_num)
+
+                    selected_terms = []
+                    vocab_results = drawing.get('vocabulary_search_results', {})
+                    for subject, terms in vocab_results.items():
+                        for term in terms:
+                            if term.get('selected', False):
+                                # Include label, URI, and vocabulary source
+                                label = term.get('label', '')
+                                uri = term.get('uri', '')
+                                source = term.get('source', '')
+                                selected_terms.append(f"{label} [{source}] ({uri})")
+
+                    selected_headings_by_page[key] = selected_terms
+
+            # Headers for metadata sheet - matching JSON field names
+            metadata_headers = [
+                "Folder", "Filename", "Title", "Contributors", "Genre",
+                "Description", "Format/Media", "Date on Drawing", "Sheet Info",
+                "Subjects (AI)", "Subject Headings (Controlled Vocab)",
+                "Named Entities", "Geographic Entities", "Content Warning"
+            ]
+
+            for col, header in enumerate(metadata_headers, 1):
+                cell = ws_metadata.cell(row=1, column=col, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_alignment
+                cell.border = thin_border
+
+            # Populate metadata rows
+            for row_num, item in enumerate(data_items, 2):
+                analysis = item.get('analysis', {})
+
+                folder = item.get('folder', '')
+                page_num = item.get('page_number', 0)
+                image_path = item.get('image_path', '')
+                filename = os.path.basename(image_path) if image_path else ''
+
+                # Get contributors (list of dicts with name and role)
+                contributors = analysis.get('contributors', [])
+                if isinstance(contributors, list):
+                    contrib_parts = []
+                    for c in contributors:
+                        if isinstance(c, dict):
+                            name = c.get('name', '')
+                            role = c.get('role', '')
+                            if name and role:
+                                contrib_parts.append(f"{name} ({role})")
+                            elif name:
+                                contrib_parts.append(name)
+                        elif isinstance(c, str):
+                            contrib_parts.append(c)
+                    contributors_str = '; '.join(contrib_parts)
+                else:
+                    contributors_str = str(contributors) if contributors else ''
+
+                # Get AI-generated subjects
+                subjects = analysis.get('subjects', [])
+                if isinstance(subjects, list):
+                    subjects_str = '; '.join(subjects)
+                else:
+                    subjects_str = str(subjects) if subjects else ''
+
+                # Get selected vocabulary subject headings from final_selected_terms
+                final_terms = analysis.get('final_selected_terms', [])
+                if final_terms:
+                    headings_parts = []
+                    for term in final_terms:
+                        label = term.get('label', '')
+                        uri = term.get('uri', '')
+                        source = term.get('source', '')
+                        if label:
+                            headings_parts.append(f"{label} [{source}] ({uri})")
+                    headings_str = '; '.join(headings_parts)
+                else:
+                    # Fallback to old method if final_selected_terms not present
+                    key = (folder, page_num)
+                    selected_headings = selected_headings_by_page.get(key, [])
+                    headings_str = '; '.join(selected_headings) if selected_headings else ''
+
+                # Handle named entities - may be list or string
+                entities = analysis.get('named_entities', [])
+                if isinstance(entities, list):
+                    entities_str = '; '.join(entities)
+                else:
+                    entities_str = str(entities) if entities else ''
+
+                # Handle geographic entities - may be list or string
+                geo_entities = analysis.get('geographic_entities', [])
+                if isinstance(geo_entities, list):
+                    geo_entities_str = '; '.join(geo_entities)
+                else:
+                    geo_entities_str = str(geo_entities) if geo_entities else ''
+
+                row_data = [
+                    folder,
+                    filename,
+                    analysis.get('title', ''),
+                    contributors_str,
+                    analysis.get('genre', '') or analysis.get('document_type', ''),
+                    analysis.get('description', ''),
+                    analysis.get('format_media', ''),
+                    analysis.get('date_on_drawing', '') or analysis.get('date', ''),
+                    analysis.get('sheet_info', ''),
+                    subjects_str,
+                    headings_str,
+                    entities_str,
+                    geo_entities_str,
+                    analysis.get('content_warning', '')
+                ]
+
+                for col, value in enumerate(row_data, 1):
+                    cell = ws_metadata.cell(row=row_num, column=col, value=value)
+                    cell.alignment = cell_alignment
+                    cell.border = thin_border
+
+            # Set column widths for metadata sheet
+            col_widths = [20, 25, 30, 35, 25, 60, 40, 15, 40, 40, 60, 40, 30, 15]
+            for col, width in enumerate(col_widths, 1):
+                ws_metadata.column_dimensions[ws_metadata.cell(row=1, column=col).column_letter].width = width
+
+            # Freeze header row
+            ws_metadata.freeze_panes = 'A2'
+
+            # Save workbook
+            wb.save(excel_path)
+            print(f"Created final Excel deliverable: {excel_path}")
+            return True
+
+        except Exception as e:
+            logging.error(f"Error creating Excel deliverable: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def run(self) -> bool:
         """Main execution method."""
         print(f"\nENTITY AUTHORITY BUILDER")
@@ -522,13 +693,17 @@ class EntityAuthority:
         # Create authority files
         if not self.create_authority_file(entity_records):
             return False
-        
+
         if not self.create_human_readable_report(entity_records):
             return False
-        
-        print(f"\nSTEP 5 COMPLETE: Built entity authority in {os.path.basename(self.folder_path)}")
-        print(f"Entity authority JSON and human-readable report created with fuzzy matching")
-        
+
+        # Create final Excel deliverable with 4 sheets
+        if not self.create_final_excel_deliverable(entity_records):
+            return False
+
+        print(f"\nSTEP 4 COMPLETE: Built entity authority in {os.path.basename(self.folder_path)}")
+        print(f"Created: entity_authority.json, entity_authority_report.txt, final_deliverable.xlsx")
+
         return True
     
 def main():

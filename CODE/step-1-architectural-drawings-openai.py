@@ -7,11 +7,8 @@ from datetime import datetime
 from openai import OpenAI
 import tenacity
 import re
-from openpyxl import Workbook
-from openpyxl.styles import Alignment
 from PIL import Image as PILImage
 from io import BytesIO
-from openpyxl.drawing.image import Image as XLImage
 import time
 from prompts import ArchitecturalDrawingPrompts
 from shared_utilities import APIStats, postprocess_api_response, parse_json_response_enhanced
@@ -62,8 +59,6 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
         'title': 'title',
         'contributors': 'contributors',
         'genre': 'genre',
-        'ocr text': 'ocrText',
-        'ocrtext': 'ocrText',
         'description': 'description',
         'format media': 'formatMedia',
         'formatmedia': 'formatMedia',
@@ -369,8 +364,8 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
 
     if parsed_data:
         # Ensure required fields exist with defaults
-        required_fields = ['title', 'contributors', 'genre', 'ocrText',
-                          'description','formatMedia', 'subjects', 'dateOnDrawing', 'sheetInfo',
+        required_fields = ['title', 'contributors', 'genre',
+                          'description', 'formatMedia', 'subjects', 'dateOnDrawing', 'sheetInfo',
                           'namedEntities', 'geographicEntities', 'contentWarning']
 
         for field in required_fields:
@@ -387,26 +382,6 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
     else:
         logging.error(f"Key-value parsing failed for {image_path}: {error}\nRaw response: {raw_response}")
         raise Exception(f"Key-value parsing failed: {error}")
-
-
-def format_contributors(contributors):
-    """Format contributors list for Excel display."""
-    if not contributors:
-        return ""
-
-    formatted = []
-    for contrib in contributors:
-        if isinstance(contrib, dict):
-            name = contrib.get('name', '')
-            role = contrib.get('role', '')
-            if name and role:
-                formatted.append(f"{name} ({role})")
-            elif name:
-                formatted.append(name)
-        elif isinstance(contrib, str):
-            formatted.append(contrib)
-
-    return "; ".join(formatted)
 
 
 def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL, collection_context=""):
@@ -429,44 +404,8 @@ def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL
     print(f"Processing mode: {'BATCH' if use_batch else 'INDIVIDUAL'}")
     print(f"Model: {model_name}")
 
-    wb = Workbook()
-    analysis_sheet = wb.active
-    analysis_sheet.title = "Analysis"
-
-    # Set up headers for architectural drawings
-    analysis_headers = [
-        'Folder', 'Drawing Number', 'Image Path',
-        'Title', 'Contributors', 'Genre', 'OCR Text',
-        'Description', 'Format/Media', 'Subjects',
-        'Date on Drawing', 'Sheet Info',
-        'Named Entities', 'Geographic Entities', 'Content Warning'
-    ]
-    analysis_sheet.append(analysis_headers)
-    analysis_sheet.freeze_panes = 'A2'
-
-    # Set column widths
-    column_widths = [15, 12, 30, 40, 50, 25, 50, 50, 30, 40, 15, 20, 40, 30, 30]
-    for i, width in enumerate(column_widths):
-        analysis_sheet.column_dimensions[analysis_sheet.cell(row=1, column=i+1).column_letter].width = width
-
-    # Create raw responses sheet
-    raw_sheet = wb.create_sheet("Raw Responses")
-    raw_headers = ['Folder', 'Drawing Number', 'API Response']
-    raw_sheet.append(raw_headers)
-    raw_sheet.freeze_panes = 'A2'
-
-    for i, width in enumerate([15, 12, 120]):
-        raw_sheet.column_dimensions[raw_sheet.cell(row=1, column=i+1).column_letter].width = width
-
-    # Create issues sheet
-    issues_sheet = wb.create_sheet("Issues")
-    issues_sheet.append(["Image Path", "Error"])
-
-    max_row_height = 409
-    analysis_sheet.row_dimensions[1].height = 15
-    raw_sheet.row_dimensions[1].height = 15
-
     all_results = []
+    issues = []
     items_with_issues = 0
 
     if use_batch:
@@ -543,7 +482,7 @@ def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL
                                     raw_response = f"Error: {result_data['error']}"
                                     items_with_issues += 1
                                     response_data = create_error_response(raw_response, result_data['error'])
-                                    issues_sheet.append([img_path, result_data['error']])
+                                    issues.append({"image_path": img_path, "error": result_data['error']})
 
                                     log_individual_response(
                                         logs_folder_path=logs_folder_path,
@@ -557,10 +496,6 @@ def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL
                                         processing_time=0
                                     )
 
-                                # Add to sheets
-                                add_to_sheets(analysis_sheet, raw_sheet, folder_name, page_number,
-                                            img_path, response_data, raw_response, max_row_height)
-
                                 # Add to results
                                 all_results.append(create_result_entry(folder_name, page_number,
                                                                        img_path, response_data, raw_response))
@@ -570,13 +505,12 @@ def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL
                             continue
 
             summary = processed_results["summary"]
-            return (wb, all_results, api_stats, total_items, items_with_issues, 0,
-                   summary["total_prompt_tokens"], summary["total_completion_tokens"], True)
+            return (all_results, api_stats, total_items, items_with_issues, 0,
+                   summary["total_prompt_tokens"], summary["total_completion_tokens"], issues, True)
 
     # Fall back to individual processing
-    return process_folder_individual(all_images, wb, analysis_sheet, raw_sheet, issues_sheet,
-                                     logs_folder_path, model_name, max_row_height, all_results,
-                                     collection_context)
+    return process_folder_individual(all_images, logs_folder_path, model_name, all_results,
+                                     issues, collection_context)
 
 
 def create_error_response(raw_response, error):
@@ -596,70 +530,6 @@ def create_error_response(raw_response, error):
     }
 
 
-def add_to_sheets(analysis_sheet, raw_sheet, folder_name, page_number, img_path,
-                  response_data, raw_response, max_row_height):
-    """Add data to analysis and raw sheets."""
-    # Format contributors for display
-    contributors_str = format_contributors(response_data.get('contributors', []))
-
-    # Format subjects for display
-    subjects = response_data.get('subjects', [])
-    if isinstance(subjects, list):
-        subjects_str = ', '.join(subjects)
-    else:
-        subjects_str = str(subjects)
-
-    analysis_row = [
-        folder_name,
-        page_number,
-        img_path,
-        response_data.get('title', ''),
-        contributors_str,
-        response_data.get('genre', ''),
-        response_data.get('ocrText', ''),
-        response_data.get('description', ''),
-        response_data.get('formatMedia', ''),
-        subjects_str,
-        response_data.get('dateOnDrawing', ''),
-        response_data.get('sheetInfo', ''),
-        ', '.join(response_data.get('namedEntities', [])) if isinstance(response_data.get('namedEntities'), list) else response_data.get('namedEntities', ''),
-        ', '.join(response_data.get('geographicEntities', [])) if isinstance(response_data.get('geographicEntities'), list) else response_data.get('geographicEntities', ''),
-        response_data.get('contentWarning', 'None')
-    ]
-    analysis_sheet.append(analysis_row)
-
-    # Add thumbnail image
-    try:
-        img = PILImage.open(img_path)
-        img.thumbnail((200, 200))
-        output = BytesIO()
-        img.save(output, format='JPEG')
-        output.seek(0)
-        img_excel = XLImage(output)
-        img_excel.anchor = analysis_sheet.cell(row=analysis_sheet.max_row, column=3).coordinate
-        analysis_sheet.add_image(img_excel)
-    except Exception as e:
-        logging.warning(f"Could not add thumbnail for {img_path}: {e}")
-
-    analysis_sheet.row_dimensions[analysis_sheet.max_row].height = max_row_height
-
-    # Set alignment
-    current_row = analysis_sheet.max_row
-    for col_idx, cell in enumerate(analysis_sheet[current_row], 1):
-        if col_idx == 3:
-            cell.alignment = Alignment(vertical='bottom', wrap_text=True)
-        else:
-            cell.alignment = Alignment(vertical='top', wrap_text=True)
-
-    # Add to raw sheet
-    raw_row = [folder_name, page_number, raw_response]
-    raw_sheet.append(raw_row)
-    raw_sheet.row_dimensions[raw_sheet.max_row].height = max_row_height
-
-    for cell in raw_sheet[raw_sheet.max_row]:
-        cell.alignment = Alignment(vertical='top', wrap_text=True)
-
-
 def create_result_entry(folder_name, page_number, img_path, response_data, raw_response):
     """Create a result entry dictionary for JSON output."""
     return {
@@ -670,7 +540,6 @@ def create_result_entry(folder_name, page_number, img_path, response_data, raw_r
             'title': response_data.get('title', ''),
             'contributors': response_data.get('contributors', []),
             'genre': response_data.get('genre', ''),
-            'ocr_text': response_data.get('ocrText', ''),
             'description': response_data.get('description', ''),
             'format_media': response_data.get('formatMedia', ''),
             'subjects': response_data.get('subjects', []),
@@ -684,9 +553,8 @@ def create_result_entry(folder_name, page_number, img_path, response_data, raw_r
     }
 
 
-def process_folder_individual(all_images, wb, analysis_sheet, raw_sheet, issues_sheet,
-                              logs_folder_path, model_name, max_row_height, all_results,
-                              collection_context=""):
+def process_folder_individual(all_images, logs_folder_path, model_name, all_results,
+                              issues, collection_context=""):
     """Process using individual API calls."""
     items_with_issues = 0
     total_processing_time = 0
@@ -725,7 +593,7 @@ def process_folder_individual(all_images, wb, analysis_sheet, raw_sheet, issues_
             response_data = create_error_response(raw_response, str(e))
             usage = None
 
-            issues_sheet.append([img_path, str(e)])
+            issues.append({"image_path": img_path, "error": str(e)})
 
             log_individual_response(
                 logs_folder_path=logs_folder_path,
@@ -741,10 +609,6 @@ def process_folder_individual(all_images, wb, analysis_sheet, raw_sheet, issues_
 
             print(f"   Processing failed: {str(e)}")
 
-        # Add to sheets
-        add_to_sheets(analysis_sheet, raw_sheet, folder_name, page_number,
-                     img_path, response_data, raw_response, max_row_height)
-
         # Add to results
         all_results.append(create_result_entry(folder_name, page_number,
                                                img_path, response_data, raw_response))
@@ -752,8 +616,8 @@ def process_folder_individual(all_images, wb, analysis_sheet, raw_sheet, issues_
         # Add delay between requests
         time.sleep(1)
 
-    return (wb, all_results, api_stats, len(all_images), items_with_issues, total_processing_time,
-           api_stats.total_input_tokens, api_stats.total_output_tokens, False)
+    return (all_results, api_stats, len(all_images), items_with_issues, total_processing_time,
+           api_stats.total_input_tokens, api_stats.total_output_tokens, issues, False)
 
 
 def main():
@@ -797,19 +661,20 @@ def main():
     # Create the directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Create metadata folder structure
+    # Create metadata folder structure with json subfolder
     metadata_folder = os.path.join(output_dir, "metadata")
-    os.makedirs(metadata_folder, exist_ok=True)
+    json_folder = os.path.join(metadata_folder, "json")
+    os.makedirs(json_folder, exist_ok=True)
 
     print(f"Output directory: output_folders/{folder_name}")
 
     # Process folder
-    (wb, all_results, api_stats, total_items, items_with_issues, total_processing_time,
-     total_prompt_tokens, total_completion_tokens, was_batch_processed) = process_folder_with_batch(
+    (all_results, api_stats, total_items, items_with_issues, total_processing_time,
+     total_prompt_tokens, total_completion_tokens, issues, was_batch_processed) = process_folder_with_batch(
         input_folder, output_dir, model_name, collection_context
     )
 
-    # Add API Stats sheet
+    # Add API Stats and issues to results
     api_summary = {
         "total_requests": api_stats.total_requests,
         "total_input_tokens": total_prompt_tokens,
@@ -820,16 +685,12 @@ def main():
 
     all_results.append({"api_stats": api_summary})
 
-    stats_sheet = wb.create_sheet("API Stats")
-    stats_sheet.append(["Metric", "Value"])
-    for key, value in api_summary.items():
-        stats_sheet.append([key, value])
+    if issues:
+        all_results.append({"issues": issues})
 
-    # Save files
-    excel_path = os.path.join(metadata_folder, "drawings_workflow.xlsx")
-    json_path = os.path.join(metadata_folder, "drawings_workflow.json")
+    # Save JSON file
+    json_path = os.path.join(json_folder, "drawings_workflow.json")
 
-    wb.save(excel_path)
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False)
 

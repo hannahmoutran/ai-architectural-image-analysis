@@ -25,6 +25,7 @@ myenv/
 CODE/output_folders/
 CODE/image_folders/
 CODE/other-code/
+claude.md
 
 # Output files (keep code, ignore generated data)
 *.xlsx

@@ -7,12 +7,14 @@ Processes archivist review decisions from exported JSON and updates all delivera
 
 This script:
 1. Reads archivist decisions from JSON exports (created by html-review.py)
-2. Backs up original files to an 'original-outputs' folder
-3. Applies edits to the workflow JSON (drawings_workflow.json)
+2. Backs up original JSON files to an 'original-outputs' folder
+3. Applies edits to the workflow JSON (metadata/json/drawings_workflow.json)
 4. Handles cascade rejection logic (rejected subjects → reject derived headings)
-5. Updates the Excel deliverable (drawings_workflow.xlsx)
-6. Adds an 'Edit History' sheet tracking all changes with statistics
-7. Generates final_metadata.json with only approved/clean data
+5. Generates final_metadata.json with only approved/clean data
+6. Creates edit_statistics_report.json and edit_changelog.json
+7. Creates final_deliverable.xlsx with 2 sheets:
+   - Final Metadata: All drawings with approved metadata
+   - Edit Statistics: Summary of archivist edits and acceptance rates
 
 Usage:
     python integrate-archivist-edits.py                           # Use latest export
@@ -28,7 +30,7 @@ import argparse
 import re
 from datetime import datetime
 from difflib import SequenceMatcher
-from openpyxl import load_workbook
+from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 
 # Add CODE directory to path for imports
@@ -49,8 +51,8 @@ class ArchivistEditsIntegrator:
         self.exports_folder = os.path.join(self.review_folder, "exports")
         self.original_outputs_folder = os.path.join(folder_path, "original-outputs")
 
-        self.workflow_json_path = os.path.join(self.metadata_folder, "drawings_workflow.json")
-        self.workflow_excel_path = os.path.join(self.metadata_folder, "drawings_workflow.xlsx")
+        self.json_folder = os.path.join(self.metadata_folder, "json")
+        self.workflow_json_path = os.path.join(self.json_folder, "drawings_workflow.json")
 
         self.workflow_data = None
         self.decisions_data = None
@@ -175,12 +177,11 @@ class ArchivistEditsIntegrator:
             return False
 
     def backup_original_files(self):
-        """Backup original files to original-outputs folder."""
+        """Backup original JSON files to original-outputs folder."""
         os.makedirs(self.original_outputs_folder, exist_ok=True)
 
         files_to_backup = [
             (self.workflow_json_path, "drawings_workflow.json"),
-            (self.workflow_excel_path, "drawings_workflow.xlsx")
         ]
 
         backed_up = []
@@ -209,7 +210,6 @@ class ArchivistEditsIntegrator:
             'title': 'title',
             'genre': 'genre',
             'description': 'description',
-            'ocr_text': 'ocr_text',
             'format_media': 'format_media',
             'date_on_drawing': 'date_on_drawing',
             'sheet_info': 'sheet_info',
@@ -221,7 +221,7 @@ class ArchivistEditsIntegrator:
         }
 
         # Fields that are text (for character-level diff)
-        text_fields = {'title', 'genre', 'description', 'ocr_text', 'format_media',
+        text_fields = {'title', 'genre', 'description', 'format_media',
                        'date_on_drawing', 'sheet_info', 'content_warning'}
         # Fields that are lists
         list_fields = {'contributors', 'named_entities', 'geographic_entities', 'subjects'}
@@ -671,200 +671,254 @@ class ArchivistEditsIntegrator:
             print(f"Error saving workflow JSON: {e}")
             return False
 
-    def update_excel_deliverable(self):
-        """Update the Excel deliverable with archivist edits and add Edit History sheet."""
-        if not os.path.exists(self.workflow_excel_path):
-            print(f"   Warning: Excel file not found at {self.workflow_excel_path}")
-            return False
-
+    def create_final_excel_deliverable(self):
+        """Create final Excel deliverable with 2 sheets: Final Metadata, Edit Statistics."""
         try:
-            wb = load_workbook(self.workflow_excel_path)
+            wb = Workbook()
 
-            # Get or create the main analysis sheet
-            if 'Analysis' in wb.sheetnames:
-                ws = wb['Analysis']
-            elif 'Sheet' in wb.sheetnames:
-                ws = wb['Sheet']
-            else:
-                ws = wb.active
+            # Styles
+            header_fill = PatternFill(start_color="FF2C3E50", end_color="FF2C3E50", fill_type="solid")
+            header_font = Font(color="FFFFFF", bold=True)
+            stats_fill = PatternFill(start_color="FFE8F4F8", end_color="FFE8F4F8", fill_type="solid")
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-            # Update cells based on edits
-            # The Excel columns typically are:
-            # A: Folder, B: Page, C: Image, D: Title, E: Contributors, F: Genre,
-            # G: OCR Text, H: Description, I: Format, J: Subjects, K: Date,
-            # L: Sheet Info, M: Named Entities, N: Geographic Entities, O: Content Warning
+            # ============ SHEET 1: Final Metadata ============
+            ws1 = wb.active
+            ws1.title = "Final Metadata"
 
-            column_mapping = {
-                'title': 4,  # D
-                'contributors': 5,  # E
-                'genre': 6,  # F
-                'ocr_text': 7,  # G
-                'description': 8,  # H
-                'format_media': 9,  # I
-                'subjects': 10,  # J
-                'date_on_drawing': 11,  # K
-                'sheet_info': 12,  # L
-                'named_entities': 13,  # M
-                'geographic_entities': 14,  # N
-                'content_warning': 15  # O
-            }
+            # Headers for Final Metadata - matching step-4 structure
+            metadata_headers = [
+                "Folder", "Filename", "Title", "Contributors", "Genre",
+                "Description", "Format/Media", "Date on Drawing", "Sheet Info",
+                "Subjects (AI)", "Subject Headings (Controlled Vocab)",
+                "Named Entities", "Geographic Entities", "Content Warning",
+                "Reviewed", "Archivist", "Review Date", "Notes"
+            ]
 
-            # Apply edits to Excel
-            for decision in self.decisions_data.get('decisions', []):
-                record_id = decision.get('record_id')
-                row_num = record_id + 1  # +1 for header row
+            for col, header in enumerate(metadata_headers, 1):
+                cell = ws1.cell(row=1, column=col, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
 
-                edits = decision.get('edits', {})
-                for field_name, edit_data in edits.items():
-                    if edit_data.get('edited', False) and field_name in column_mapping:
-                        col_num = column_mapping[field_name]
-                        new_value = edit_data.get('value', '')
+            # Load final metadata JSON for this sheet
+            final_metadata_path = os.path.join(self.json_folder, "final_metadata.json")
+            if os.path.exists(final_metadata_path):
+                with open(final_metadata_path, 'r', encoding='utf-8') as f:
+                    final_data = json.load(f)
 
-                        # Format list values
-                        if isinstance(new_value, list):
-                            if field_name == 'contributors':
-                                # Format contributors specially
-                                contrib_strs = []
-                                for c in new_value:
-                                    if isinstance(c, dict):
-                                        name = c.get('name', '')
-                                        role = c.get('role', '')
-                                        if role:
-                                            contrib_strs.append(f"{name} ({role})")
-                                        else:
-                                            contrib_strs.append(name)
-                                    else:
-                                        contrib_strs.append(str(c))
-                                new_value = '; '.join(contrib_strs)
+                records = final_data.get('records', [])
+                for row_idx, record in enumerate(records, 2):
+                    metadata = record.get('metadata', {})
+                    review_info = record.get('review_info', {})
+
+                    # Get filename from image_path
+                    image_path = record.get('image_path', '')
+                    filename = os.path.basename(image_path) if image_path else ''
+
+                    # Format contributors
+                    contributors = metadata.get('contributors', [])
+                    if isinstance(contributors, list):
+                        contrib_strs = []
+                        for c in contributors:
+                            if isinstance(c, dict):
+                                name = c.get('name', '')
+                                role = c.get('role', '')
+                                contrib_strs.append(f"{name} ({role})" if role else name)
                             else:
-                                new_value = ', '.join(str(v) for v in new_value)
+                                contrib_strs.append(str(c))
+                        contributors_str = '; '.join(contrib_strs)
+                    else:
+                        contributors_str = str(contributors) if contributors else ''
 
-                        cell = ws.cell(row=row_num, column=col_num)
-                        cell.value = new_value
-                        # Highlight edited cells
-                        cell.fill = PatternFill(start_color="FFFFD700", end_color="FFFFD700", fill_type="solid")
+                    # Format subject headings as "label [source] (uri)"
+                    subject_headings = metadata.get('subject_headings', [])
+                    heading_strs = []
+                    for h in subject_headings:
+                        if isinstance(h, dict):
+                            label = h.get('label', '')
+                            source = h.get('source', '')
+                            uri = h.get('uri', '')
+                            if label:
+                                heading_strs.append(f"{label} [{source}] ({uri})")
+                        else:
+                            heading_strs.append(str(h))
+                    headings_str = '; '.join(heading_strs)
 
-            # Add Edit History sheet
-            self._add_edit_history_sheet(wb)
+                    # Format list fields
+                    def format_list(lst):
+                        if isinstance(lst, list):
+                            return '; '.join(str(item) for item in lst if item)
+                        return str(lst) if lst else ''
 
-            wb.save(self.workflow_excel_path)
-            print(f"   Saved updated Excel deliverable")
-            return True
+                    row_data = [
+                        record.get('folder', ''),
+                        filename,
+                        metadata.get('title', ''),
+                        contributors_str,
+                        metadata.get('genre', ''),
+                        metadata.get('description', ''),
+                        metadata.get('format_media', ''),
+                        metadata.get('date_on_drawing', ''),
+                        metadata.get('sheet_info', ''),
+                        format_list(metadata.get('subjects', [])),
+                        headings_str,
+                        format_list(metadata.get('named_entities', [])),
+                        format_list(metadata.get('geographic_entities', [])),
+                        metadata.get('content_warning', ''),
+                        'Yes' if review_info.get('reviewed') else 'No',
+                        review_info.get('archivist_name', ''),
+                        review_info.get('review_date', ''),
+                        review_info.get('archivist_notes', '')
+                    ]
+
+                    for col, value in enumerate(row_data, 1):
+                        cell = ws1.cell(row=row_idx, column=col, value=value)
+                        cell.border = border
+                        cell.alignment = wrap_alignment
+
+            # Adjust column widths for Final Metadata
+            col_widths = [20, 25, 30, 35, 25, 60, 40, 15, 40, 40, 60, 40, 30, 15, 10, 20, 20, 30]
+            for col_idx, width in enumerate(col_widths, 1):
+                ws1.column_dimensions[ws1.cell(row=1, column=col_idx).column_letter].width = width
+
+            # Freeze header row
+            ws1.freeze_panes = 'A2'
+
+            # ============ SHEET 2: Edit Statistics ============
+            ws2 = wb.create_sheet("Edit Statistics")
+
+            self.stats['integration_timestamp'] = datetime.now().isoformat()
+
+            # Summary section at top
+            ws2['A1'] = "ARCHIVIST EDIT INTEGRATION SUMMARY"
+            ws2['A1'].font = Font(size=14, bold=True)
+            ws2.merge_cells('A1:C1')
+
+            # Extract models from logs
+            models_used = self._extract_models_from_logs()
+
+            summary_data = [
+                ("Models Used:", ', '.join(models_used) if models_used else 'Unknown'),
+                ("Archivist Name:", self.stats['archivist_name']),
+                ("Export Timestamp:", self.stats['export_timestamp']),
+                ("Integration Timestamp:", self.stats['integration_timestamp']),
+                ("", ""),
+                ("Total Records in Batch:", self.stats.get('total_records_in_batch', self.stats['total_records_in_export'])),
+                ("Records Reviewed:", self.stats['total_records_in_export']),
+                ("Records with Edits:", self.stats['records_with_edits']),
+                ("Records Reviewed Only (no edits):", self.stats['records_reviewed_only']),
+                ("", ""),
+                ("Total Field Edits:", self.stats['total_field_edits']),
+            ]
+
+            row = 3
+            for label, value in summary_data:
+                cell1 = ws2.cell(row=row, column=1, value=label)
+                cell1.font = Font(bold=True)
+                ws2.cell(row=row, column=2, value=value)
+                if label:
+                    cell1.fill = stats_fill
+                    ws2.cell(row=row, column=2).fill = stats_fill
+                row += 1
+
+            # Edits by Field Section
+            row += 1
+            ws2.cell(row=row, column=1, value="EDITS BY FIELD").font = Font(bold=True, size=12)
+            row += 1
+            for field, count in sorted(self.stats['edits_by_field'].items()):
+                ws2.cell(row=row, column=1, value=f"  {field}:")
+                ws2.cell(row=row, column=2, value=count)
+                row += 1
+
+            # Subject Acceptance Rates
+            row += 1
+            ws2.cell(row=row, column=1, value="SUBJECTS (AI-identified topics)").font = Font(bold=True, size=12)
+            row += 1
+            subjects_total = self.stats['subjects_total']
+            subjects_accepted = self.stats['subjects_accepted']
+            subjects_rejected = self.stats['subjects_rejected']
+            acceptance_pct = (subjects_accepted / subjects_total * 100) if subjects_total > 0 else 100.0
+
+            ws2.cell(row=row, column=1, value="  Total:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=subjects_total).fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  Accepted:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=f"{subjects_accepted} ({acceptance_pct:.1f}%)").fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  Rejected:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=subjects_rejected).fill = stats_fill
+            row += 1
+            if self.stats['subjects_custom_added'] > 0:
+                ws2.cell(row=row, column=1, value="  Custom Added:").fill = stats_fill
+                ws2.cell(row=row, column=2, value=self.stats['subjects_custom_added']).fill = stats_fill
+                row += 1
+
+            # Subject Heading Approval Rates
+            row += 1
+            ws2.cell(row=row, column=1, value="SUBJECT HEADINGS (controlled vocabulary)").font = Font(bold=True, size=12)
+            row += 1
+
+            ai_total = self.stats['ai_selected_total']
+            ai_approved = self.stats['ai_selected_approved']
+            ai_rejected = self.stats['ai_selected_rejected']
+            ai_cascade = self.stats['ai_selected_cascade_rejected']
+            ai_approval_pct = (ai_approved / ai_total * 100) if ai_total > 0 else 100.0
+
+            ws2.cell(row=row, column=1, value="  AI-Selected Total:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=ai_total).fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  AI-Selected Approved:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=f"{ai_approved} ({ai_approval_pct:.1f}%)").fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  AI-Selected Rejected:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=ai_rejected).fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  AI-Selected Cascade Rejected:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=ai_cascade).fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  Archivist Added from List:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=self.stats['archivist_added_from_list']).fill = stats_fill
+            row += 1
+            ws2.cell(row=row, column=1, value="  Archivist Added Custom:").fill = stats_fill
+            ws2.cell(row=row, column=2, value=self.stats['archivist_added_custom']).fill = stats_fill
+            row += 1
+
+            # Text field character metrics
+            if self.stats['text_field_metrics']:
+                row += 1
+                ws2.cell(row=row, column=1, value="CHARACTER-LEVEL CHANGES").font = Font(bold=True, size=12)
+                row += 1
+
+                for field, metrics in sorted(self.stats['text_field_metrics'].items()):
+                    avg_similarity = (metrics['similarity_sum'] / metrics['edits_count'] * 100) if metrics['edits_count'] > 0 else 100.0
+                    ws2.cell(row=row, column=1, value=f"  {field}:")
+                    ws2.cell(row=row, column=2, value=f"{metrics['edits_count']} edits, {metrics['chars_total_changed']} chars changed, {avg_similarity:.1f}% similar")
+                    row += 1
+
+            # Adjust column widths for Edit Statistics
+            ws2.column_dimensions['A'].width = 35
+            ws2.column_dimensions['B'].width = 50
+            ws2.column_dimensions['C'].width = 30
+
+            # Save the workbook
+            excel_path = os.path.join(self.metadata_folder, "final_deliverable.xlsx")
+            wb.save(excel_path)
+            print(f"   Created final_deliverable.xlsx with 2 sheets")
+            return excel_path
 
         except Exception as e:
-            print(f"Error updating Excel: {e}")
+            print(f"Error creating final Excel deliverable: {e}")
             import traceback
             traceback.print_exc()
-            return False
-
-    def _add_edit_history_sheet(self, wb):
-        """Add an Edit History sheet to the workbook."""
-        # Remove existing Edit History sheet if present
-        if 'Edit History' in wb.sheetnames:
-            del wb['Edit History']
-
-        ws = wb.create_sheet('Edit History')
-
-        # Styles
-        header_fill = PatternFill(start_color="FF2C3E50", end_color="FF2C3E50", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        stats_fill = PatternFill(start_color="FFE8F4F8", end_color="FFE8F4F8", fill_type="solid")
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-
-        # Summary Statistics Section
-        ws['A1'] = "ARCHIVIST EDIT INTEGRATION SUMMARY"
-        ws['A1'].font = Font(size=14, bold=True)
-        ws.merge_cells('A1:E1')
-
-        self.stats['integration_timestamp'] = datetime.now().isoformat()
-
-        summary_data = [
-            ("Archivist Name:", self.stats['archivist_name']),
-            ("Export Timestamp:", self.stats['export_timestamp']),
-            ("Integration Timestamp:", self.stats['integration_timestamp']),
-            ("", ""),
-            ("Total Records in Export:", self.stats['total_records_in_export']),
-            ("Records with Edits:", self.stats['records_with_edits']),
-            ("Records Reviewed Only (no edits):", self.stats['records_reviewed_only']),
-            ("", ""),
-            ("Total Field Edits:", self.stats['total_field_edits']),
-            ("", ""),
-            ("SUBJECTS (AI-identified topics):", ""),
-            ("  Total:", self.stats['subjects_total']),
-            ("  Accepted:", self.stats['subjects_accepted']),
-            ("  Rejected:", self.stats['subjects_rejected']),
-            ("", ""),
-            ("SUBJECT HEADINGS (controlled vocab):", ""),
-            ("  AI-Selected Total:", self.stats['ai_selected_total']),
-            ("  AI-Selected Approved:", self.stats['ai_selected_approved']),
-            ("  AI-Selected Rejected:", self.stats['ai_selected_rejected']),
-            ("  AI-Selected Cascade Rejected:", self.stats['ai_selected_cascade_rejected']),
-            ("  Archivist Added from List:", self.stats['archivist_added_from_list']),
-            ("  Archivist Added Custom:", self.stats['archivist_added_custom']),
-        ]
-
-        row = 3
-        for label, value in summary_data:
-            ws.cell(row=row, column=1, value=label).font = Font(bold=True)
-            ws.cell(row=row, column=2, value=value)
-            if label:
-                ws.cell(row=row, column=1).fill = stats_fill
-                ws.cell(row=row, column=2).fill = stats_fill
-            row += 1
-
-        # Edits by Field Section
-        row += 1
-        ws.cell(row=row, column=1, value="Edits by Field:").font = Font(bold=True)
-        row += 1
-        for field, count in sorted(self.stats['edits_by_field'].items()):
-            ws.cell(row=row, column=1, value=f"  {field}:")
-            ws.cell(row=row, column=2, value=count)
-            row += 1
-
-        # Detailed Edit History Section
-        row += 2
-        ws.cell(row=row, column=1, value="DETAILED EDIT HISTORY").font = Font(size=12, bold=True)
-        ws.merge_cells(f'A{row}:E{row}')
-        row += 1
-
-        # Headers
-        headers = ["Record ID", "Field", "Edit Type", "Original Value", "New Value"]
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=row, column=col, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.border = border
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-
-        row += 1
-
-        # Edit history rows
-        for edit in self.edit_history:
-            ws.cell(row=row, column=1, value=edit['record_id']).border = border
-            ws.cell(row=row, column=2, value=edit['field']).border = border
-            ws.cell(row=row, column=3, value=edit['edit_type']).border = border
-
-            orig_cell = ws.cell(row=row, column=4, value=edit['original_value'])
-            orig_cell.border = border
-            orig_cell.alignment = Alignment(wrap_text=True, vertical='top')
-
-            new_cell = ws.cell(row=row, column=5, value=edit['new_value'])
-            new_cell.border = border
-            new_cell.alignment = Alignment(wrap_text=True, vertical='top')
-
-            row += 1
-
-        # Adjust column widths
-        ws.column_dimensions['A'].width = 12
-        ws.column_dimensions['B'].width = 20
-        ws.column_dimensions['C'].width = 20
-        ws.column_dimensions['D'].width = 40
-        ws.column_dimensions['E'].width = 40
+            return None
 
     def _calculate_quality_scores(self):
         """Calculate aggregate quality scores for LLM comparison.
@@ -886,14 +940,18 @@ class ArchivistEditsIntegrator:
         ai_approved = self.stats['ai_selected_approved']
         ai_approval_pct = (ai_approved / ai_total * 100) if ai_total > 0 else 100.0
 
-        # Average text similarity across all edited text fields
+        # Average text similarity across ALL records (unedited = 100% similar)
+        # This measures overall AI quality, not just how much edited fields changed
         total_similarity = 0.0
         total_edits = 0
         for metrics in self.stats['text_field_metrics'].values():
             if metrics['edits_count'] > 0:
                 total_similarity += metrics['similarity_sum']
                 total_edits += metrics['edits_count']
-        avg_text_similarity = (total_similarity / total_edits) if total_edits > 0 else 1.0
+        # Add unedited records as 100% similar (1.0 each)
+        unedited_records = total_records - total_edits if total_records > total_edits else 0
+        total_similarity_all = total_similarity + unedited_records  # unedited = 1.0 similarity each
+        avg_text_similarity = (total_similarity_all / total_records) if total_records > 0 else 1.0
 
         return {
             'edit_rate': {
@@ -1005,24 +1063,30 @@ class ArchivistEditsIntegrator:
         quality_scores = self._calculate_quality_scores()
 
         # Build text field summary with totals and percentages
+        # Similarity is calculated across ALL records (unedited = 100% similar)
         text_fields_summary = {}
         total_chars_all_fields = 0
         total_edits_count = 0
         total_similarity_weighted = 0.0
+        total_records = self.stats['total_records_in_export']
 
         for field_name, metrics in self.stats['text_field_metrics'].items():
             edits = metrics['edits_count']
-            avg_similarity = (metrics['similarity_sum'] / edits) if edits > 0 else 1.0
+            # Calculate similarity across ALL records: edited records + unedited (100% similar)
+            unedited_for_field = total_records - edits
+            similarity_sum_all = metrics['similarity_sum'] + unedited_for_field  # unedited = 1.0 each
+            avg_similarity = (similarity_sum_all / total_records) if total_records > 0 else 1.0
             avg_chars = (metrics['chars_total_changed'] / edits) if edits > 0 else 0
             similarity_pct = avg_similarity * 100
 
             text_fields_summary[field_name] = {
                 'records_edited': edits,
+                'records_total': total_records,
                 'total_original_chars': metrics['total_original_length'],
                 'total_chars_changed': metrics['chars_total_changed'],
                 'avg_chars_changed': round(avg_chars, 1),
                 'similarity': {
-                    'display': f"{similarity_pct:.1f}% similar",
+                    'display': f"{similarity_pct:.1f}% similar across all {total_records} records",
                     'value': round(similarity_pct, 2)
                 }
             }
@@ -1031,14 +1095,18 @@ class ArchivistEditsIntegrator:
             total_edits_count += edits
             total_similarity_weighted += metrics['similarity_sum']
 
-        # Calculate overall text field averages
-        overall_avg_similarity = (total_similarity_weighted / total_edits_count * 100) if total_edits_count > 0 else 100.0
+        # Calculate overall text field averages across ALL records
+        # Total similarity = sum of edited similarities + (unedited records * 1.0)
+        unedited_records = total_records - total_edits_count if total_records > total_edits_count else 0
+        total_similarity_all = total_similarity_weighted + unedited_records
+        overall_avg_similarity = (total_similarity_all / total_records * 100) if total_records > 0 else 100.0
 
         text_fields_totals = {
             'total_fields_edited': total_edits_count,
+            'total_records': total_records,
             'total_chars_changed_all_fields': total_chars_all_fields,
             'overall_similarity': {
-                'display': f"{overall_avg_similarity:.1f}% similar across all text edits",
+                'display': f"{overall_avg_similarity:.1f}% similar across all {total_records} records",
                 'value': round(overall_avg_similarity, 2)
             }
         }
@@ -1121,7 +1189,7 @@ class ArchivistEditsIntegrator:
         }
 
         # Save report
-        report_path = os.path.join(self.metadata_folder, "edit_statistics_report.json")
+        report_path = os.path.join(self.json_folder, "edit_statistics_report.json")
         try:
             with open(report_path, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2, ensure_ascii=False)
@@ -1143,7 +1211,7 @@ class ArchivistEditsIntegrator:
             'edits': self.edit_history
         }
 
-        changelog_path = os.path.join(self.metadata_folder, "edit_changelog.json")
+        changelog_path = os.path.join(self.json_folder, "edit_changelog.json")
         try:
             with open(changelog_path, 'w', encoding='utf-8') as f:
                 json.dump(changelog, f, indent=2, ensure_ascii=False)
@@ -1386,7 +1454,6 @@ class ArchivistEditsIntegrator:
                     'contributors': analysis.get('contributors', []),
                     'genre': analysis.get('genre', ''),
                     'description': analysis.get('description', ''),
-                    'ocr_text': analysis.get('ocr_text', ''),
                     'format_media': analysis.get('format_media', ''),
                     'date_on_drawing': analysis.get('date_on_drawing', ''),
                     'sheet_info': analysis.get('sheet_info', ''),
@@ -1407,7 +1474,7 @@ class ArchivistEditsIntegrator:
             final_records.append(clean_record)
 
         # Write final metadata
-        final_metadata_path = os.path.join(self.metadata_folder, "final_metadata.json")
+        final_metadata_path = os.path.join(self.json_folder, "final_metadata.json")
         try:
             with open(final_metadata_path, 'w', encoding='utf-8') as f:
                 json.dump({
@@ -1475,36 +1542,38 @@ class ArchivistEditsIntegrator:
         if not self.save_workflow_json():
             return False
 
-        # Update Excel
-        print("\n7. Updating Excel deliverable...")
-        self.update_excel_deliverable()
-
         # Generate final metadata
-        print("\n8. Generating final_metadata.json...")
+        print("\n7. Generating final_metadata.json...")
         self.generate_final_metadata()
 
         # Generate edit statistics report
-        print("\n9. Generating reports...")
+        print("\n8. Generating reports...")
         report_path = self.generate_edit_statistics_report()
         changelog_path = self.generate_edit_changelog()
+
+        # Create final Excel deliverable
+        print("\n9. Creating final Excel deliverable...")
+        excel_path = self.create_final_excel_deliverable()
 
         # Print summary
         self.print_summary()
 
-        final_metadata_path = os.path.join(self.metadata_folder, "final_metadata.json")
-        edit_stats_path = os.path.join(self.metadata_folder, "edit_statistics_report.json")
-        edit_changelog_path = os.path.join(self.metadata_folder, "edit_changelog.json")
+        final_metadata_path = os.path.join(self.json_folder, "final_metadata.json")
+        edit_stats_path = os.path.join(self.json_folder, "edit_statistics_report.json")
+        edit_changelog_path = os.path.join(self.json_folder, "edit_changelog.json")
+        final_excel_path = os.path.join(self.metadata_folder, "final_deliverable.xlsx")
 
         print("\n" + "=" * 60)
         print("INTEGRATION COMPLETE")
         print("=" * 60)
         print(f"\nUpdated files:")
         print(f"   {self.workflow_json_path}")
-        print(f"   {self.workflow_excel_path}")
         print(f"   {final_metadata_path}")
         print(f"\nReports generated:")
         print(f"   {edit_stats_path}")
         print(f"   {edit_changelog_path}")
+        print(f"\nFinal deliverable:")
+        print(f"   {final_excel_path}")
         print(f"\nOriginal files backed up to:")
         print(f"   {self.original_outputs_folder}")
         print("=" * 60)

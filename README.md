@@ -112,6 +112,8 @@ University of Texas at Austin Libraries
 - Katie Pierce Meyer - Head of Architectural Collections
 - Josh Conrad - Digital Initiatives Archival Fellow
 
+For questions about this project, please contact [Hannah Moutran](hlm2454@my.utexas.edu)
+
 ## License
 
 See [LICENSE](LICENSE) for details.

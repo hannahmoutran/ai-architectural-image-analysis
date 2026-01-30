@@ -8,8 +8,14 @@ Please note that output folder name will be based on the model used in step 1
 # =============================================================================
 # IMAGE FOLDER CONFIGURATION
 # =============================================================================
-# Name of the folder containing images to process (located in CODE/image_folders/)
-IMAGE_FOLDER = "alfred-zucker"
+# Option 1: Process a SINGLE folder
+# Set IMAGE_FOLDER to process just one collection
+IMAGE_FOLDER = "james-riely-gordon"
+
+# Option 2: Process MULTIPLE folders
+# Set IMAGE_FOLDERS to a list of folder names to process them all sequentially
+# When IMAGE_FOLDERS is set (not None/empty), it takes precedence over IMAGE_FOLDER
+IMAGE_FOLDERS = None  # e.g., ["collection-1", "collection-2", "collection-3"]
 
 # =============================================================================
 # MODEL CONFIGURATION
@@ -111,18 +117,36 @@ STEP3_MODEL = None  # e.g., "gpt-4.1-mini" or None for default
 # HELPER FUNCTIONS
 # =============================================================================
 
-def get_step1_config():
-    """Get the configuration for Step 1 (Image Analysis)."""
+def get_image_folders():
+    """
+    Get the list of image folders to process.
+
+    Returns a list of folder names. If IMAGE_FOLDERS is set, returns that list.
+    Otherwise, returns a single-item list with IMAGE_FOLDER.
+    """
+    if IMAGE_FOLDERS:
+        return IMAGE_FOLDERS
+    return [IMAGE_FOLDER]
+
+
+def get_step1_config(image_folder=None):
+    """Get the configuration for Step 1 (Image Analysis).
+
+    Args:
+        image_folder: Optional folder name override. If not provided,
+                      uses IMAGE_FOLDER from config.
+    """
     provider = STEP1_PROVIDER.lower()
     if provider not in AVAILABLE_MODELS:
         raise ValueError(f"Unknown provider: {provider}. Choose from: {list(AVAILABLE_MODELS.keys())}")
 
     model = STEP1_MODEL if STEP1_MODEL else AVAILABLE_MODELS[provider]["default"]
+    folder = image_folder if image_folder else IMAGE_FOLDER
 
     return {
         "provider": provider,
         "model": model,
-        "image_folder": IMAGE_FOLDER
+        "image_folder": folder
     }
 
 
@@ -166,7 +190,14 @@ def print_current_config():
     print("\n" + "=" * 60)
     print("CURRENT CONFIGURATION")
     print("=" * 60)
-    print(f"\nImage Folder: {IMAGE_FOLDER}")
+
+    folders = get_image_folders()
+    if len(folders) == 1:
+        print(f"\nImage Folder: {folders[0]}")
+    else:
+        print(f"\nImage Folders ({len(folders)} total):")
+        for folder in folders:
+            print(f"  - {folder}")
 
     step1 = get_step1_config()
     print(f"\nStep 1 (Image Analysis):")

@@ -8,8 +8,6 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment
 from collections import defaultdict
 import re
 from shared_utilities import find_newest_folder
@@ -1067,33 +1065,29 @@ class ArchitecturalDrawingsEnhancer:
         
         self.workflow_type = None
         self.json_data = None
-        self.excel_path = None
+        self.json_folder = None
         self.max_terms_per_vocabulary = 3  # For topics
         self.max_geo_terms_per_vocabulary = 1  # For geographic entities
         self.max_total_terms = 12  # 3 terms × 4 vocabularies = 12 max total for topics
-    
+
     def detect_workflow_type(self) -> bool:
         """Detect drawings workflow folder."""
-        # Check for expected files in the metadata subfolder
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        drawings_files = ['drawings_workflow.xlsx', 'drawings_workflow.json']
+        # Check for expected JSON file in the metadata/json subfolder (new structure)
+        json_folder_new = os.path.join(self.folder_path, "metadata", "json")
+        json_path_new = os.path.join(json_folder_new, "drawings_workflow.json")
 
-        has_drawings_files = all(os.path.exists(os.path.join(metadata_dir, f)) for f in drawings_files)
-
-        if has_drawings_files:
+        if os.path.exists(json_path_new):
             self.workflow_type = 'drawings'
-            self.excel_path = os.path.join(self.folder_path, "metadata", "drawings_workflow.xlsx")
+            self.json_folder = json_folder_new
             return True
         else:
-            logging.error("No drawings_workflow.xlsx/json files found in the folder.")
+            logging.error("No drawings_workflow.json file found in metadata/json or metadata folder.")
             return False
 
     def load_json_data(self) -> bool:
         """Load the JSON data from the appropriate workflow file."""
-        # Save the enhanced JSON in the metadata folder
         json_filename = f"{self.workflow_type}_workflow.json"
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        json_path = os.path.join(metadata_dir, json_filename)
+        json_path = os.path.join(self.json_folder, json_filename)
 
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -1238,7 +1232,7 @@ class ArchitecturalDrawingsEnhancer:
         print(f"API calls will be logged to: {self.logs_folder_path}")
         
         # Process subjects
-        subject_to_terms_excel = {}
+        subject_to_terms_display = {}
         subject_to_terms_json = {}
         
         for i, subject in enumerate(subjects, 1):
@@ -1265,15 +1259,15 @@ class ArchitecturalDrawingsEnhancer:
                 all_terms.extend(getty_terms)
                         
             # Format results for this subject
-            formatted_terms_excel = self.format_results_for_excel(all_terms)
+            formatted_terms_display = self.format_results_for_display(all_terms)
             formatted_terms_json = self.format_results_for_json(all_terms)
             
             # Store results for this specific subject
-            subject_to_terms_excel[subject] = formatted_terms_excel
+            subject_to_terms_display[subject] = formatted_terms_display
             subject_to_terms_json[subject] = formatted_terms_json
         
         # Process geographic entities
-        geographic_to_terms_excel = {}
+        geographic_to_terms_display = {}
         geographic_to_terms_json = {}
         
         for i, entity in enumerate(geographic_entities, 1):
@@ -1288,15 +1282,15 @@ class ArchitecturalDrawingsEnhancer:
                 print(f"     No FAST Geographic term found")
 
             # Format results for this geographic entity
-            formatted_terms_excel = self.format_results_for_excel(geo_terms)
+            formatted_terms_display = self.format_results_for_display(geo_terms)
             formatted_terms_json = self.format_results_for_json(geo_terms)
             
             # Store results for this specific geographic entity
-            geographic_to_terms_excel[entity] = formatted_terms_excel
+            geographic_to_terms_display[entity] = formatted_terms_display
             geographic_to_terms_json[entity] = formatted_terms_json
         
             # Process chronological terms - search LCSH for actual URIs with quoted searches
-            chronological_to_terms_excel = {}
+            chronological_to_terms_display = {}
             chronological_to_terms_json = {}
 
             for chronological_term in chronological_terms:
@@ -1315,10 +1309,10 @@ class ArchitecturalDrawingsEnhancer:
                         term['label'] = chronological_term  # Use original unquoted term for display
                     
                     # Format results for this chronological term
-                    formatted_terms_excel = self.format_results_for_excel(lcsh_terms)
+                    formatted_terms_display = self.format_results_for_display(lcsh_terms)
                     formatted_terms_json = self.format_results_for_json(lcsh_terms)
                     
-                    chronological_to_terms_excel[chronological_term] = formatted_terms_excel
+                    chronological_to_terms_display[chronological_term] = formatted_terms_display
                     chronological_to_terms_json[chronological_term] = formatted_terms_json
                     
                     print(f"   Found LCSH chronological term with URI (quoted search): {chronological_term}")
@@ -1331,10 +1325,10 @@ class ArchitecturalDrawingsEnhancer:
                         lcsh_terms = lcsh_results_unquoted[chronological_term][:1]  # Only take 1 term
                         
                         # Format results for this chronological term
-                        formatted_terms_excel = self.format_results_for_excel(lcsh_terms)
+                        formatted_terms_display = self.format_results_for_display(lcsh_terms)
                         formatted_terms_json = self.format_results_for_json(lcsh_terms)
                         
-                        chronological_to_terms_excel[chronological_term] = formatted_terms_excel
+                        chronological_to_terms_display[chronological_term] = formatted_terms_display
                         chronological_to_terms_json[chronological_term] = formatted_terms_json
                         
                         print(f"   Found LCSH chronological term with URI (unquoted fallback): {chronological_term}")
@@ -1352,16 +1346,16 @@ class ArchitecturalDrawingsEnhancer:
                         formatted_excel = f"{chronological_term} [{term_object['source']}]"
                         formatted_json = [term_object]
                         
-                        chronological_to_terms_excel[chronological_term] = formatted_terms_excel
+                        chronological_to_terms_display[chronological_term] = formatted_terms_display
                         chronological_to_terms_json[chronological_term] = formatted_json
                         
                         print(f"   Created chronological term without URI: {chronological_term}")
         
-        return (subject_to_terms_excel, subject_to_terms_json, 
-            geographic_to_terms_excel, geographic_to_terms_json,
-            chronological_to_terms_excel, chronological_to_terms_json)
+        return (subject_to_terms_display, subject_to_terms_json, 
+            geographic_to_terms_display, geographic_to_terms_json,
+            chronological_to_terms_display, chronological_to_terms_json)
     
-    def format_results_for_excel(self, terms: List[Dict[str, str]]) -> str:
+    def format_results_for_display(self, terms: List[Dict[str, str]]) -> str:
         """Format results for spreadsheet display with labels, URIs, and sources."""
         if not terms:
             return ""
@@ -1403,150 +1397,6 @@ class ArchitecturalDrawingsEnhancer:
                 seen_uris.add(uri)
         
         return formatted_terms
-    
-    def enhance_excel_file(self, subject_to_terms: Dict[str, str], geographic_to_terms: Dict[str, str], chronological_to_terms: Dict[str, str]) -> bool:
-        """Add vocabulary terms columns to the Excel file for both topics, geographic entities, and chronological terms."""
-        try:
-            # Load the existing workbook
-            wb = load_workbook(self.excel_path)
-            analysis_sheet = wb['Analysis']
-            
-            # Column structure for drawings workflow
-            # Headers: Folder, Drawing Number, Image Path, Title, Contributors, Genre, OCR Text,
-            #          Description, Format/Media, Subjects, Date on Drawing, Sheet Info,
-            #          Named Entities, Geographic Entities, Content Warning
-            subject_col = 10  # Subjects column
-            geo_col = 14      # Geographic Entities column
-            date_col = 11     # Date on Drawing column
-            insert_col = 16   # Insert vocabulary terms after Content Warning (column 15)
-            
-            # Insert THREE new columns (one for topic vocab terms, one for geographic vocab terms, one for chronological terms)
-            analysis_sheet.insert_cols(insert_col, 3)
-            
-            # Add headers
-            topic_vocab_header = analysis_sheet.cell(row=1, column=insert_col)
-            topic_vocab_header.value = "Topic Vocabulary Terms (Max 3 per vocab per topic)"
-            topic_vocab_header.alignment = Alignment(vertical='top', wrap_text=True)
-            
-            geo_vocab_header = analysis_sheet.cell(row=1, column=insert_col + 1)
-            geo_vocab_header.value = "Geographic Vocabulary Terms (FAST only)"
-            geo_vocab_header.alignment = Alignment(vertical='top', wrap_text=True)
-            
-            # NEW: Add chronological terms header
-            chrono_vocab_header = analysis_sheet.cell(row=1, column=insert_col + 2)
-            chrono_vocab_header.value = "Chronological Terms (LCSH)"
-            chrono_vocab_header.alignment = Alignment(vertical='top', wrap_text=True)
-            
-            # Set column widths
-            topic_col_letter = topic_vocab_header.column_letter
-            geo_col_letter = geo_vocab_header.column_letter
-            chrono_col_letter = chrono_vocab_header.column_letter
-            analysis_sheet.column_dimensions[topic_col_letter].width = 50
-            analysis_sheet.column_dimensions[geo_col_letter].width = 50
-            analysis_sheet.column_dimensions[chrono_col_letter].width = 50
-            
-            # Process each data row
-            processed_rows = 0
-            for row_num in range(2, analysis_sheet.max_row + 1):
-                # Get the topics and geographic entities from the current row
-                subject_cell = analysis_sheet.cell(row=row_num, column=subject_col)
-                geo_cell = analysis_sheet.cell(row=row_num, column=geo_col)
-                
-                topics = subject_cell.value or ""
-                geo_entities = geo_cell.value or ""
-                
-                # Process topics vocabulary terms
-                topic_vocab_terms = []
-                if topics and topics.strip():
-                    subjects = [s.strip() for s in topics.split(',') if s.strip()]
-                    print(f"Row {row_num-1}: Processing {len(subjects)} topics: {subjects}")
-                    
-                    for subject in subjects:
-                        if subject in subject_to_terms and subject_to_terms[subject]:
-                            terms = [t.strip() for t in subject_to_terms[subject].split(';') if t.strip()]
-                            topic_vocab_terms.extend(terms)
-                            print(f"  - '{subject}': {len(terms)} terms")
-                        else:
-                            print(f"  - '{subject}': No terms found")
-                
-                # Process geographic entities vocabulary terms
-                geo_vocab_terms = []
-                if geo_entities and geo_entities.strip():
-                    entities = [e.strip() for e in geo_entities.split(',') if e.strip()]
-                    print(f"Row {row_num-1}: Processing {len(entities)} geographic entities: {entities}")
-                    
-                    for entity in entities:
-                        if entity in geographic_to_terms and geographic_to_terms[entity]:
-                            terms = [t.strip() for t in geographic_to_terms[entity].split(';') if t.strip()]
-                            geo_vocab_terms.extend(terms)
-                            print(f"  - '{entity}': {len(terms)} geographic terms")
-                        else:
-                            print(f"  - '{entity}': No geographic terms found")
-                
-                # Process chronological terms - extract from Date on Drawing column
-                date_cell = analysis_sheet.cell(row=row_num, column=date_col)  # Date on Drawing column
-                date_text = date_cell.value or ""
-
-                # Get chronological terms from the date on drawing
-                year = self.extract_year_from_text(date_text)
-                row_chronological_terms = self.get_chronological_terms_from_year(year) if year else []
-                chrono_vocab_terms = []
-                for chrono_term in row_chronological_terms:
-                    if chrono_term in chronological_to_terms and chronological_to_terms[chrono_term]:
-                        terms = [t.strip() for t in chronological_to_terms[chrono_term].split(';') if t.strip()]
-                        chrono_vocab_terms.extend(terms)
-                
-                # Remove duplicates while preserving order for all three types
-                unique_topic_terms = []
-                seen_topic = set()
-                for term in topic_vocab_terms:
-                    if term not in seen_topic:
-                        unique_topic_terms.append(term)
-                        seen_topic.add(term)
-                
-                unique_geo_terms = []
-                seen_geo = set()
-                for term in geo_vocab_terms:
-                    if term not in seen_geo:
-                        unique_geo_terms.append(term)
-                        seen_geo.add(term)
-                
-                unique_chrono_terms = []
-                seen_chrono = set()
-                for term in chrono_vocab_terms:
-                    if term not in seen_chrono:
-                        unique_chrono_terms.append(term)
-                        seen_chrono.add(term)
-                
-                print(f"  - Total unique topic terms: {len(unique_topic_terms)}")
-                print(f"  - Total unique geographic terms: {len(unique_geo_terms)}")
-                print(f"  - Total unique chronological terms: {len(unique_chrono_terms)}")
-                
-                # Set the vocabulary terms cell values
-                topic_vocab_cell = analysis_sheet.cell(row=row_num, column=insert_col)
-                topic_vocab_cell.value = "; ".join(unique_topic_terms) if unique_topic_terms else ""
-                topic_vocab_cell.alignment = Alignment(vertical='top', wrap_text=True)
-                
-                geo_vocab_cell = analysis_sheet.cell(row=row_num, column=insert_col + 1)
-                geo_vocab_cell.value = "; ".join(unique_geo_terms) if unique_geo_terms else ""
-                geo_vocab_cell.alignment = Alignment(vertical='top', wrap_text=True)
-                
-                # NEW: Set chronological terms cell value
-                chrono_vocab_cell = analysis_sheet.cell(row=row_num, column=insert_col + 2)
-                chrono_vocab_cell.value = "; ".join(unique_chrono_terms) if unique_chrono_terms else ""
-                chrono_vocab_cell.alignment = Alignment(vertical='top', wrap_text=True)
-                
-                if unique_topic_terms or unique_geo_terms or unique_chrono_terms:
-                    processed_rows += 1
-            
-            # Save the enhanced workbook
-            wb.save(self.excel_path)
-            print(f"Enhanced Excel file saved with vocabulary terms in {processed_rows} rows")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error enhancing Excel file: {e}")
-            return False
     
     def enhance_json_file(self, subject_to_terms_json: Dict[str, List[Dict[str, str]]], 
                     geographic_to_terms_json: Dict[str, List[Dict[str, str]]],
@@ -1623,9 +1473,8 @@ class ArchitecturalDrawingsEnhancer:
             
             # Save the enhanced JSON
             json_filename = f"{self.workflow_type}_workflow.json"
-            # Saves in metadata folder
-            metadata_dir = os.path.join(self.folder_path, "metadata")
-            json_path = os.path.join(metadata_dir, json_filename)
+            # Saves in metadata/json folder
+            json_path = os.path.join(self.json_folder, json_filename)
             
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(enhanced_items, f, indent=2, ensure_ascii=False)
@@ -1636,60 +1485,54 @@ class ArchitecturalDrawingsEnhancer:
             logging.error(f"Error enhancing JSON file: {e}")
             return False
     
-    def create_vocabulary_report(self, subject_to_terms: Dict[str, str], 
-                            geographic_to_terms: Dict[str, str], 
+    def create_vocabulary_report(self, subject_to_terms: Dict[str, str],
+                            geographic_to_terms: Dict[str, str],
                             chronological_to_terms: Dict[str, str]) -> bool:
         """Create a detailed vocabulary mapping report organized by page for topics, geographic entities, and chronological terms."""
         try:
             # Save vocabulary report in the metadata folder
             metadata_dir = os.path.join(self.folder_path, "metadata")
             report_path = os.path.join(metadata_dir, "vocabulary_mapping_report.txt")
-            
+
             # Create mappings of page number to topics/geographic entities and folder info
             page_to_topics = defaultdict(list)
             page_to_geographic = defaultdict(list)
-            page_to_folder = {}  
-            
-            # Load the existing workbook to get page information
-            wb = load_workbook(self.excel_path)
-            analysis_sheet = wb['Analysis']
-            
-            # Column structure for drawings workflow
-            # Headers: Folder, Drawing Number, Image Path, Title, Contributors, Genre, OCR Text,
-            #          Description, Format/Media, Subjects, Date on Drawing, Sheet Info,
-            #          Named Entities, Geographic Entities, Content Warning
-            page_col = 2      # Drawing Number column (1-indexed: Folder=1, Drawing Number=2)
-            subject_col = 10  # Subjects column
-            geo_col = 14      # Geographic Entities column
-            
-            # Build mapping of page to topics and geographic entities
-            for row_num in range(2, analysis_sheet.max_row + 1):
-                page_cell = analysis_sheet.cell(row=row_num, column=page_col)
-                subject_cell = analysis_sheet.cell(row=row_num, column=subject_col)
-                geo_cell = analysis_sheet.cell(row=row_num, column=geo_col)
-                
-                page_number = page_cell.value or "Unknown"
-                folder_cell = analysis_sheet.cell(row=row_num, column=1)  # Folder column
-                folder_name = folder_cell.value or "Unknown"
-                page_to_folder[page_number] = folder_name  # Store folder for this page
-                topics = subject_cell.value or ""
-                geo_entities = geo_cell.value or ""
-                
-                # Process topics
-                if topics and topics.strip():
-                    subjects = [s.strip() for s in topics.split(',') if s.strip()]
+            page_to_folder = {}
+
+            # Use JSON data to build mappings
+            data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+
+            for item in data_items:
+                if 'analysis' in item:
+                    page_number = item.get('page_number', 'Unknown')
+                    folder_name = item.get('folder', 'Unknown')
+                    page_to_folder[page_number] = folder_name
+
+                    # Get subjects
+                    subjects_data = item['analysis'].get('subjects', [])
+                    if isinstance(subjects_data, str):
+                        subjects = [s.strip() for s in subjects_data.split(',') if s.strip()]
+                    elif isinstance(subjects_data, list):
+                        subjects = [s.strip() if isinstance(s, str) else s for s in subjects_data if s]
+                    else:
+                        subjects = []
+
                     for subject in subjects:
                         if subject:
                             page_to_topics[page_number].append(subject)
-                
-                # Process geographic entities
-                if geo_entities and geo_entities.strip():
-                    entities = [e.strip() for e in geo_entities.split(',') if e.strip()]
+
+                    # Get geographic entities
+                    geo_entities = item['analysis'].get('geographic_entities', [])
+                    if isinstance(geo_entities, str):
+                        entities = [e.strip() for e in geo_entities.split(',') if e.strip()]
+                    elif isinstance(geo_entities, list):
+                        entities = [e.strip() if isinstance(e, str) else e for e in geo_entities if e]
+                    else:
+                        entities = []
+
                     for entity in entities:
                         if entity:
                             page_to_geographic[page_number].append(entity)
-            
-            wb.close()
             
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write("ARCHITECTURAL DRAWINGS VOCABULARY MAPPING REPORT\n")
@@ -2048,23 +1891,19 @@ class ArchitecturalDrawingsEnhancer:
         print(f"Found {len(geographic_entities)} unique geographic entities")
         
         # Process multi-vocabulary lookup with comprehensive logging
-        (subject_to_terms_excel, subject_to_terms_json, 
-        geographic_to_terms_excel, geographic_to_terms_json,
-        chronological_to_terms_excel, chronological_to_terms_json) = self.process_multi_vocabulary_lookup(
+        (subject_to_terms_display, subject_to_terms_json,
+        geographic_to_terms_display, geographic_to_terms_json,
+        chronological_to_terms_display, chronological_to_terms_json) = self.process_multi_vocabulary_lookup(
             subjects, geographic_entities, chronological_terms
         )
-        
-        # Enhance Excel file
-        if not self.enhance_excel_file(subject_to_terms_excel, geographic_to_terms_excel, chronological_to_terms_excel):
-            return False
 
         # Enhance JSON file
         if not self.enhance_json_file(subject_to_terms_json, geographic_to_terms_json, chronological_to_terms_json):
             return False
 
-        # Create vocabulary report
-        self.create_vocabulary_report(subject_to_terms_excel, geographic_to_terms_excel, chronological_to_terms_excel)
-        
+        # Create vocabulary report (uses display format for human-readable output)
+        self.create_vocabulary_report(subject_to_terms_display, geographic_to_terms_display, chronological_to_terms_display)
+
         # Generate comprehensive API usage logs
         total_items = len(subjects) + len(geographic_entities)
         api_summary_stats = self.stats_tracker.get_summary_stats(total_items)
@@ -2074,13 +1913,13 @@ class ArchitecturalDrawingsEnhancer:
             total_topics=total_items,
             api_stats=api_summary_stats
         )
-        
+
         # Final summary
-        subjects_with_terms = sum(1 for terms in subject_to_terms_excel.values() if terms)
-        geo_with_terms = sum(1 for terms in geographic_to_terms_excel.values() if terms)
+        subjects_with_terms = sum(1 for terms in subject_to_terms_display.values() if terms)
+        geo_with_terms = sum(1 for terms in geographic_to_terms_display.values() if terms)
 
         print(f"\nSTEP 2 COMPLETE: Enhanced with vocabulary terms in {os.path.basename(self.folder_path)}")
-        print(f"Updated Excel/JSON files, vocabulary report, and API logs created")
+        print(f"Updated JSON files, vocabulary report, and API logs created")
         print(f"Topics with vocabulary terms: {subjects_with_terms}/{len(subjects)}")
         print(f"Geographic entities with vocabulary terms: {geo_with_terms}/{len(geographic_entities)}")
         if subjects:

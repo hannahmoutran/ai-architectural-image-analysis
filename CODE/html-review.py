@@ -5,7 +5,7 @@ Step 5: Create Interactive HTML Review Interface for Architectural Drawings
 
 Generates a local HTML review interface allowing archivists to:
 - View architectural drawing images alongside AI-generated metadata
-- Edit all AI-generated fields (OCR, title, description, subjects, entities, etc.)
+- Edit all AI-generated fields (title, description, subjects, entities, etc.)
 - Approve/reject/edit controlled vocabulary terms
 - Add new terms manually
 - Export decisions to JSON for integration back into the workflow
@@ -44,8 +44,8 @@ class HTMLReviewBuilder:
 
     def load_json_data(self):
         """Load workflow JSON data."""
-        metadata_dir = os.path.join(self.folder_path, "metadata")
-        json_path = os.path.join(metadata_dir, "drawings_workflow.json")
+        json_folder = os.path.join(self.folder_path, "metadata", "json")
+        json_path = os.path.join(json_folder, "drawings_workflow.json")
 
         if not os.path.exists(json_path):
             print(f"Error: drawings_workflow.json not found at {json_path}")
@@ -967,7 +967,7 @@ class HTMLReviewBuilder:
             }}
 
             // Store original values for text/textarea fields (for tracking edits including deletions)
-            const textFields = ['title', 'genre', 'description', 'ocr_text', 'format_media', 'date_on_drawing', 'sheet_info', 'content_warning'];
+            const textFields = ['title', 'genre', 'description', 'format_media', 'date_on_drawing', 'sheet_info', 'content_warning'];
             textFields.forEach(fieldName => {{
                 const storageKey = 'original-field-' + fieldName + '-' + recordId;
                 if (getStorage(storageKey, null) === null) {{
@@ -1424,7 +1424,6 @@ class HTMLReviewBuilder:
             ('title', 'Title', 'text'),
             ('genre', 'Genre', 'text'),
             ('description', 'Description', 'textarea-large'),
-            ('ocr_text', 'OCR Text', 'textarea-large'),
             ('format_media', 'Format/Media', 'text'),
             ('date_on_drawing', 'Date on Drawing', 'text'),
             ('sheet_info', 'Sheet Info', 'textarea'),
