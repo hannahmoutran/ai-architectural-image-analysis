@@ -2,6 +2,7 @@
 openai>=1.0.0
 anthropic>=0.30.0
 google-genai>=1.0.0
+portkey-ai>=1.0.0  # Optional: only required if OPENAI_USE_PORTKEY = True in config.py
 
 # Data processing
 pandas

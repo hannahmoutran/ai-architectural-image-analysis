@@ -1,5 +1,7 @@
 # AI Architectural Image Analysis
 
+Developed by Hannah Moutran, UT Austin Libraries
+
 Multi-provider AI pipeline for automated metadata generation from architectural drawings, developed for the **University of Texas at Austin Libraries - Alexander Architectural Archives**.
 
 ## Overview
@@ -19,6 +21,7 @@ This system uses LLMs (Claude, OpenAI, Gemini) to:
 
 - **Multi-provider support**: Choose between OpenAI, Anthropic Claude, or Google Gemini for AI processing
 - **Controlled vocabulary integration**: Automatically searches and selects terms from LCSH, FAST, Getty AAT, and Getty TGN
+- **Format/media vocabulary**: Extracts medium and support separately and maps them to Getty AAT terms
 - **OpenAI Batch API support**: 50% cost savings with OpenAI's Batch API for large collections
 - **Multi-collection processing**: Process multiple collections sequentially in a single run
 - **HTML review interface**: Web-based archivist review of AI-generated metadata
@@ -32,10 +35,10 @@ Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3
 
 | Step | Scripts | Purpose |
 |------|---------|---------|
-| **1** | `step-1-architectural-drawings-{claude,openai,gemini}.py` | Extract metadata from images (title, contributors, genre, description, subjects, dates, entities) |
+| **1** | `step-1-architectural-drawings-{claude,openai,gemini}.py`, `step-1-architectural-drawings-openai-portkey.py` | Extract metadata from images (title, contributors, genre, description, subjects, dates, entities, medium, support) |
 | **1.5** | `step-1.5-batch-cleanup.py` | Reprocess failed items from Step 1 |
 | **2** | `step-2-terms.py` | Query controlled vocabulary APIs (LCSH, FAST, Getty AAT/TGN) |
-| **3** | `step-3-vocab-selection-{claude,openai,gemini}.py` | AI selects best vocabulary terms from search results |
+| **3** | `step-3-vocab-selection-{claude,openai,gemini}.py`, `step-3-vocab-selection-openai-portkey.py` | AI selects best vocabulary terms from search results |
 | **4** | `step-4-entity-report-creation.py` | Compile named entity authority file with fuzzy matching |
 | **5** | `html-review.py` | Generate interactive HTML review interface for archivist curation |
 | **6** | `integrate-archivist-edits.py` | Apply archivist edits back to metadata files, generate edit statistics |
@@ -70,10 +73,14 @@ pip install -r requirements.txt
 export OPENAI_API_KEY="your-key"
 export CLAUDE_API_KEY="your-key"
 export GEMINI_API_KEY="your-key"
+
+# Portkey gateway (optional — only needed if OPENAI_USE_PORTKEY = True in config.py)
+export PORTKEY_API_KEY="your-portkey-api-key"
+export PORTKEY_VIRTUAL_KEY="your-portkey-virtual-key"
 ```
 
 ### Key Dependencies
-`openai`, `anthropic`, `google-genai`, `pandas`, `openpyxl`, `rapidfuzz`, `tenacity`, `pillow`, `spacy`, `tiktoken`
+`openai`, `anthropic`, `google-genai`, `portkey-ai`, `pandas`, `openpyxl`, `rapidfuzz`, `tenacity`, `pillow`, `spacy`, `tiktoken`
 
 ## Usage
 
@@ -233,10 +240,12 @@ The AI selects from verified terms rather than generating subject headings, ensu
 University of Texas at Austin Libraries
 
 - Hannah Moutran - Library Specialist, AI Implementation
+- Aaron Choate - Director of Research & Strategy
 - Devon Murphy - Metadata Analyst
 - Karina Sanchez - Scholars Lab Librarian
 - Katie Pierce Meyer - Head of Architectural Collections
 - Josh Conrad - Digital Initiatives Archival Fellow
+
 
 ## Development
 
