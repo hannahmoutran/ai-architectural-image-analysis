@@ -224,7 +224,12 @@ ArchImagesAI_{collection}_{model}_{date}_Time_{time}/
 │   ├── images/                       # Copied images for portability
 │   ├── exports/                      # Archivist decision exports
 │   └── *.html                        # Interactive HTML review pages
-└── original-outputs/                 # Backup before edits
+```
+
+> **Note:** To view the HTML review pages correctly, the entire output folder must be downloaded to your local computer. Images are served from the local `review/images/` directory, so opening the HTML file from a remote location or without the accompanying folder structure will result in missing images.
+
+```
+└── original-outputs/                 # Backup automatically created before edits are integrated
 ```
 
 ## Controlled Vocabularies
