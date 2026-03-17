@@ -195,12 +195,13 @@ ai-architectural-image-analysis/
 │   ├── run.py                    # Main runner script
 │   ├── config.py                 # Configuration settings
 │   ├── image_folders/
-│   │   └── your-collection/      # Your images here
+│   │   └── your-collection/      # Images from one collection here
 │   │       ├── drawing1.jpg
 │   │       ├── drawing2.png
 │   │       └── collection-name.txt  # Optional context file
+        └── your-second-collection/ # Images from another collection here, etc.
 │   └── output_folders/           # Auto-generated outputs
-└── requirements.txt
+└── requirements.txt, etc. 
 ```
 
 ## Output
@@ -221,7 +222,8 @@ ArchImagesAI_{collection}_{model}_{date}_Time_{time}/
 │   └── *_api_usage_log.txt
 ├── review/
 │   ├── images/                       # Copied images for portability
-│   └── exports/                      # Archivist decision exports
+│   ├── exports/                      # Archivist decision exports
+│   └── *.html                        # Interactive HTML review pages
 └── original-outputs/                 # Backup before edits
 ```
 
