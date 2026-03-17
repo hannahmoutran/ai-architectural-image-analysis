@@ -60,7 +60,7 @@ Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3
 ### Setup
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/ai-architectural-image-analysis.git
+git clone https://github.com/hannahmoutran/ai-architectural-image-analysis
 cd ai-architectural-image-analysis
 
 # Install dependencies
