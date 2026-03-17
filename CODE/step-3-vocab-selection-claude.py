@@ -121,24 +121,42 @@ class VocabularySelector:
         if analysis.get('date_on_drawing'):
             content_parts.append(f"DATE:\n{analysis['date_on_drawing']}")
 
+        # Add format/media fields so the AI knows what materials to match
+        if analysis.get('format_media'):
+            content_parts.append(f"FORMAT MEDIA:\n{analysis['format_media']}")
+        if analysis.get('medium'):
+            content_parts.append(f"MEDIUM:\n{analysis['medium']}")
+        if analysis.get('support'):
+            content_parts.append(f"SUPPORT:\n{analysis['support']}")
+
         content_description = "\n\n".join(content_parts)
 
         # Build topic-organized vocabulary terms
         topic_to_terms = analysis.get('vocabulary_search_results', {})
+        medium_to_terms = analysis.get('medium_vocabulary_search_results', {})
 
-        if not topic_to_terms:
-            return None  # No topic-organized vocabulary terms available
+        if not topic_to_terms and not medium_to_terms:
+            return None  # No vocabulary terms available
 
-        topics_section = self._build_topic_organized_terms(topic_to_terms)
+        topics_section = self._build_topic_organized_terms(topic_to_terms) if topic_to_terms else ""
+        medium_section = self._build_topic_organized_terms(medium_to_terms) if medium_to_terms else ""
 
         # Combine everything
+        medium_prompt_section = ""
+        if medium_section:
+            medium_prompt_section = f"""
+FORMAT/MEDIA VOCABULARY TERMS (Getty AAT only):
+{medium_section}
+Select the most accurate Getty AAT terms for the medium and support materials. Only select terms that precisely match the materials described in the Format Media field. Use exact labels.
+"""
+
         user_prompt = f"""Analyze this architectural drawing metadata and select appropriate vocabulary terms:
 
 {content_description}
 
 AVAILABLE VOCABULARY TERMS BY TOPIC:
 {topics_section}
-
+{medium_prompt_section}
 Select the most relevant terms following your instructions. Use exact labels without [source] brackets. Skip topics with no genuinely relevant terms.
 """
 
@@ -187,7 +205,7 @@ Select the most relevant terms following your instructions. Use exact labels wit
 
         response = client.messages.create(
             model=self.model_name,
-            max_tokens=1500,
+            max_tokens=4000,
             system=self.system_prompt,
             messages=[
                 {"role": "user", "content": user_prompt}
@@ -277,9 +295,10 @@ class ArchitecturalDrawingsVocabularyProcessor:
 
             has_vocab_terms = False
             for item in data_items:
-                if 'analysis' in item and 'vocabulary_search_results' in item['analysis']:
-                    vocab_terms = item['analysis']['vocabulary_search_results']
-                    if vocab_terms:
+                if 'analysis' in item:
+                    vocab_terms = item['analysis'].get('vocabulary_search_results', {})
+                    medium_vocab_terms = item['analysis'].get('medium_vocabulary_search_results', {})
+                    if vocab_terms or medium_vocab_terms:
                         has_vocab_terms = True
                         break
 
@@ -325,9 +344,10 @@ class ArchitecturalDrawingsVocabularyProcessor:
         data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
 
         for i, item in enumerate(data_items):
-            if 'analysis' in item and 'vocabulary_search_results' in item['analysis']:
-                vocab_terms = item['analysis']['vocabulary_search_results']
-                if vocab_terms:
+            if 'analysis' in item:
+                vocab_terms = item['analysis'].get('vocabulary_search_results', {})
+                medium_vocab_terms = item['analysis'].get('medium_vocabulary_search_results', {})
+                if vocab_terms or medium_vocab_terms:
                     entries_with_vocab.append((i, item))
 
         return entries_with_vocab
@@ -389,10 +409,11 @@ class ArchitecturalDrawingsVocabularyProcessor:
         print(f"\nProcessing completed: {processed_entries}/{total_entries} entries processed")
         return selection_results
 
-    def match_selected_labels_to_original_terms(self, selected_labels: List[str], vocab_search_results: Dict[str, List[Dict]]) -> List[Dict]:
+    def match_selected_labels_to_original_terms(self, selected_labels: List[str], vocab_search_results: Dict[str, List[Dict]], medium_vocab_results: Dict[str, List[Dict]] = None) -> List[Dict]:
         """Match selected labels to original terms with source priority.
 
         Also tracks which subject (topic) each term was derived from for cascade rejection support.
+        Returns terms with an 'is_medium_term' flag for terms from medium_vocab_results.
         """
         import re
 
@@ -401,10 +422,19 @@ class ArchitecturalDrawingsVocabularyProcessor:
         for topic, terms in vocab_search_results.items():
             for term in terms:
                 if isinstance(term, dict):
-                    # Create a copy with provenance tracking
                     term_with_provenance = term.copy()
                     term_with_provenance['derived_from_subject'] = topic
+                    term_with_provenance['is_medium_term'] = False
                     all_available_terms.append(term_with_provenance)
+
+        if medium_vocab_results:
+            for topic, terms in medium_vocab_results.items():
+                for term in terms:
+                    if isinstance(term, dict):
+                        term_with_provenance = term.copy()
+                        term_with_provenance['derived_from_subject'] = topic
+                        term_with_provenance['is_medium_term'] = True
+                        all_available_terms.append(term_with_provenance)
 
         def normalize_for_comparison(label: str) -> str:
             normalized = re.sub(r'[^a-z\s]', '', label.lower())
@@ -479,11 +509,24 @@ class ArchitecturalDrawingsVocabularyProcessor:
                             selected_labels.append(label)
 
                     vocab_search_results = item['analysis'].get('vocabulary_search_results', {})
-                    matched_terms = self.match_selected_labels_to_original_terms(selected_labels, vocab_search_results)
+                    medium_vocab_results = item['analysis'].get('medium_vocabulary_search_results', {})
+                    matched_terms = self.match_selected_labels_to_original_terms(selected_labels, vocab_search_results, medium_vocab_results)
 
-                    item['analysis']['final_selected_terms'] = matched_terms
+                    # Split into subject terms and medium/support terms
+                    subject_terms = [t for t in matched_terms if not t.get('is_medium_term', False)]
+                    medium_terms = [t for t in matched_terms if t.get('is_medium_term', False)]
+
+                    # Remove the helper flag before storing
+                    for t in subject_terms:
+                        t.pop('is_medium_term', None)
+                    for t in medium_terms:
+                        t.pop('is_medium_term', None)
+
+                    item['analysis']['final_selected_terms'] = subject_terms
+                    item['analysis']['final_selected_medium_terms'] = medium_terms
                 else:
                     item['analysis']['final_selected_terms'] = []
+                    item['analysis']['final_selected_medium_terms'] = []
 
                 # Keep vocabulary_search_results in JSON - valuable for showing all candidate terms
                 # The vocabulary mapping report provides a human-readable summary
@@ -522,18 +565,26 @@ class ArchitecturalDrawingsVocabularyProcessor:
                     "folder": item.get('folder', 'Unknown'),
                     "page_number": item.get('page_number', 'Unknown'),
                     "vocabulary_search_results": {},
-                    "final_selected_terms": []
+                    "medium_vocabulary_search_results": {},
+                    "final_selected_terms": [],
+                    "final_selected_medium_terms": []
                 }
 
                 # Get vocabulary search results and mark which are selected
                 vocab_search_results = item['analysis'].get('vocabulary_search_results', {})
+                medium_vocab_results = item['analysis'].get('medium_vocabulary_search_results', {})
                 selected_terms = item['analysis'].get('final_selected_terms', [])
+                selected_medium_terms = item['analysis'].get('final_selected_medium_terms', [])
 
                 # Get selected URIs for marking
                 selected_uris = set()
                 for term in selected_terms:
                     if isinstance(term, dict) and term.get('uri'):
                         selected_uris.add(term['uri'])
+                selected_medium_uris = set()
+                for term in selected_medium_terms:
+                    if isinstance(term, dict) and term.get('uri'):
+                        selected_medium_uris.add(term['uri'])
 
                 # Process vocabulary search results and add 'selected' flag
                 for topic, terms in vocab_search_results.items():
@@ -545,7 +596,18 @@ class ArchitecturalDrawingsVocabularyProcessor:
                             marked_terms.append(term_copy)
                     drawing_data['vocabulary_search_results'][topic] = marked_terms
 
+                # Process medium vocabulary search results
+                for topic, terms in medium_vocab_results.items():
+                    marked_terms = []
+                    for term in terms:
+                        if isinstance(term, dict):
+                            term_copy = term.copy()
+                            term_copy['selected'] = term.get('uri', '') in selected_medium_uris
+                            marked_terms.append(term_copy)
+                    drawing_data['medium_vocabulary_search_results'][topic] = marked_terms
+
                 drawing_data['final_selected_terms'] = selected_terms
+                drawing_data['final_selected_medium_terms'] = selected_medium_terms
                 vocabulary_mapping['drawings'].append(drawing_data)
 
             # Save to metadata/json folder
@@ -583,7 +645,9 @@ class ArchitecturalDrawingsVocabularyProcessor:
                     f.write("=" * 50 + "\n")
 
                     vocab_search_results = item['analysis'].get('vocabulary_search_results', {})
+                    medium_vocab_results = item['analysis'].get('medium_vocabulary_search_results', {})
                     selected_terms = item['analysis'].get('final_selected_terms', [])
+                    selected_medium_terms = item['analysis'].get('final_selected_medium_terms', [])
 
                     selected_uris = set()
                     if selected_terms:
@@ -592,6 +656,14 @@ class ArchitecturalDrawingsVocabularyProcessor:
                                 uri = term.get('uri', '')
                                 if uri:
                                     selected_uris.add(uri)
+
+                    selected_medium_uris = set()
+                    if selected_medium_terms:
+                        for term in selected_medium_terms:
+                            if isinstance(term, dict):
+                                uri = term.get('uri', '')
+                                if uri:
+                                    selected_medium_uris.add(uri)
 
                     if vocab_search_results:
                         f.write(f"\nVOCABULARY SEARCH RESULTS:\n")
@@ -622,6 +694,27 @@ class ArchitecturalDrawingsVocabularyProcessor:
 
                             f.write("\n")
 
+                    if medium_vocab_results:
+                        f.write(f"\nFORMAT/MEDIA VOCABULARY SEARCH RESULTS (Getty AAT):\n")
+                        for topic, terms in medium_vocab_results.items():
+                            f.write(f"  Material: {topic}\n")
+                            if terms:
+                                topic_terms = []
+                                for term in terms:
+                                    if isinstance(term, dict):
+                                        label = term.get('label', '')
+                                        source = term.get('source', '')
+                                        uri = term.get('uri', '')
+                                        is_selected = uri in selected_medium_uris
+                                        if is_selected:
+                                            topic_terms.append(f"{label} ({uri}) [{source}] ✓")
+                                        else:
+                                            topic_terms.append(f"{label} ({uri}) [{source}]")
+                                f.write(f"    Terms: {'; '.join(topic_terms)}\n")
+                            else:
+                                f.write(f"    Terms: No terms available\n")
+                            f.write("\n")
+
                     # Always show selected terms if they exist
                     if selected_terms:
                         f.write("FINAL SELECTED TERMS:\n")
@@ -632,7 +725,18 @@ class ArchitecturalDrawingsVocabularyProcessor:
                                 source = term.get('source', '')
                                 f.write(f"  - {label} ({uri}) [{source}]\n")
                         f.write("\n")
-                    elif not vocab_search_results:
+
+                    if selected_medium_terms:
+                        f.write("FINAL SELECTED FORMAT/MEDIA TERMS (Getty AAT):\n")
+                        for term in selected_medium_terms:
+                            if isinstance(term, dict):
+                                label = term.get('label', '')
+                                uri = term.get('uri', '')
+                                source = term.get('source', '')
+                                f.write(f"  - {label} ({uri}) [{source}]\n")
+                        f.write("\n")
+
+                    if not vocab_search_results and not medium_vocab_results:
                         f.write("\nNo vocabulary terms available for this drawing.\n\n")
 
                     f.write("=" * 50 + "\n\n")

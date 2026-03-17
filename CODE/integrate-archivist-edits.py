@@ -232,7 +232,7 @@ class ArchivistEditsIntegrator:
         }
 
         # Fields that are text (for character-level diff)
-        text_fields = {'title', 'genre', 'description', 'format_media',
+        text_fields = {'title', 'genre', 'description', 'format_media', 'medium', 'support',
                        'date_on_drawing', 'sheet_info', 'content_warning'}
         # Fields that are lists
         list_fields = {'contributors', 'named_entities', 'geographic_entities', 'subjects'}
@@ -437,6 +437,9 @@ class ArchivistEditsIntegrator:
                 # Archivist added from vocabulary list (not AI-selected)
                 if status == 'approved':
                     self.stats['archivist_added_from_list'] += 1
+            elif term_id.startswith('medium-selected-') or term_id.startswith('medium-other-'):
+                # Format/Media vocabulary term decisions (Getty AAT)
+                pass  # Tracked in generate_final_metadata via final_selected_medium_terms
 
             # Log to edit history
             if status == 'cascade_rejected':
@@ -706,7 +709,7 @@ class ArchivistEditsIntegrator:
             # Headers for Final Metadata - matching step-4 structure
             metadata_headers = [
                 "Folder", "Filename", "Title", "Contributors", "Genre",
-                "Description", "Format/Media", "Date on Drawing", "Sheet Info",
+                "Description", "Format/Media", "Format/Media Terms (Getty AAT)", "Date on Drawing", "Sheet Info",
                 "Subjects (AI)", "Subject Headings (Controlled Vocab)",
                 "Named Entities", "Geographic Entities", "Content Warning",
                 "Reviewed", "Archivist", "Review Date", "Notes"
@@ -769,6 +772,13 @@ class ArchivistEditsIntegrator:
                             return '; '.join(str(item) for item in lst if item)
                         return str(lst) if lst else ''
 
+                    # Format medium terms as semicolon-separated labels with URIs
+                    medium_terms_list = metadata.get('format_media_terms', [])
+                    medium_terms_str = '; '.join(
+                        f"{t.get('label', '')} ({t.get('uri', '')})" if t.get('uri') else t.get('label', '')
+                        for t in medium_terms_list if t.get('label')
+                    )
+
                     row_data = [
                         record.get('folder', ''),
                         filename,
@@ -777,6 +787,7 @@ class ArchivistEditsIntegrator:
                         metadata.get('genre', ''),
                         metadata.get('description', ''),
                         metadata.get('format_media', ''),
+                        medium_terms_str,
                         metadata.get('date_on_drawing', ''),
                         metadata.get('sheet_info', ''),
                         format_list(metadata.get('subjects', [])),
@@ -796,7 +807,7 @@ class ArchivistEditsIntegrator:
                         cell.alignment = wrap_alignment
 
             # Adjust column widths for Final Metadata
-            col_widths = [20, 25, 30, 35, 25, 60, 40, 15, 40, 40, 60, 40, 30, 15, 10, 20, 20, 30]
+            col_widths = [20, 25, 30, 35, 25, 60, 40, 45, 15, 40, 40, 60, 40, 30, 15, 10, 20, 20, 30]
             for col_idx, width in enumerate(col_widths, 1):
                 ws1.column_dimensions[ws1.cell(row=1, column=col_idx).column_letter].width = width
 
@@ -1474,6 +1485,43 @@ class ArchivistEditsIntegrator:
                     'derived_from_subject': term.get('derived_from_subject', '')
                 })
 
+            # Filter medium/support vocabulary terms: keep only approved ones
+            final_selected_medium_terms = analysis.get('final_selected_medium_terms', [])
+            approved_medium_terms = []
+            for i, term in enumerate(final_selected_medium_terms):
+                term_id = f"medium-selected-{i}"
+                decision = term_decisions.get(term_id)
+                if decision == 'rejected':
+                    continue  # Skip explicitly rejected
+                approved_medium_terms.append({
+                    'label': term.get('label', ''),
+                    'uri': term.get('uri', ''),
+                    'source': term.get('source', ''),
+                    'derived_from_subject': term.get('derived_from_subject', '')
+                })
+
+            # Add "medium-other-*" terms that were approved from the medium vocabulary list
+            medium_vocab_results = analysis.get('medium_vocabulary_search_results', {})
+            if medium_vocab_results:
+                selected_medium_labels = set(t.get('label', '').lower() for t in final_selected_medium_terms)
+                other_medium_list = []
+                for topic, terms in medium_vocab_results.items():
+                    for term in terms:
+                        label = term.get('label', '')
+                        if label.lower() not in selected_medium_labels:
+                            other_medium_list.append({'topic': topic, 'label': label,
+                                                      'uri': term.get('uri', ''), 'source': term.get('source', 'Getty AAT')})
+                for i, term in enumerate(other_medium_list):
+                    term_id = f"medium-other-{i}"
+                    decision = term_decisions.get(term_id)
+                    if decision == 'approved':
+                        approved_medium_terms.append({
+                            'label': term['label'],
+                            'uri': term['uri'],
+                            'source': term['source'],
+                            'derived_from_subject': term.get('topic', '')
+                        })
+
             # Build clean record
             clean_record = {
                 'folder': record.get('folder', ''),
@@ -1485,6 +1533,9 @@ class ArchivistEditsIntegrator:
                     'genre': analysis.get('genre', ''),
                     'description': analysis.get('description', ''),
                     'format_media': analysis.get('format_media', ''),
+                    'medium': analysis.get('medium', ''),
+                    'support': analysis.get('support', ''),
+                    'format_media_terms': approved_medium_terms,
                     'date_on_drawing': analysis.get('date_on_drawing', ''),
                     'sheet_info': analysis.get('sheet_info', ''),
                     'named_entities': analysis.get('named_entities', []),

@@ -63,6 +63,8 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
         'description': 'description',
         'format media': 'formatMedia',
         'formatmedia': 'formatMedia',
+        'medium': 'medium',
+        'support': 'support',
         'subjects': 'subjects',
         'date on drawing': 'dateOnDrawing',
         'dateondrawing': 'dateOnDrawing',
@@ -396,7 +398,7 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
     if parsed_data:
         # Ensure required fields exist with defaults
         required_fields = ['title', 'contributors', 'genre',
-                          'description', 'formatMedia', 'subjects', 'dateOnDrawing', 'sheetInfo',
+                          'description', 'formatMedia', 'medium', 'support', 'subjects', 'dateOnDrawing', 'sheetInfo',
                           'namedEntities', 'geographicEntities', 'contentWarning']
 
         for field in required_fields:
@@ -450,6 +452,8 @@ def create_error_response(raw_response, error):
         "genre": "",
         "description": raw_response,
         "formatMedia": "",
+        "medium": "",
+        "support": "",
         "subjects": [],
         "dateOnDrawing": "",
         "sheetInfo": "",
@@ -471,6 +475,8 @@ def create_result_entry(folder_name, page_number, img_path, response_data, raw_r
             'genre': response_data.get('genre', ''),
             'description': response_data.get('description', ''),
             'format_media': response_data.get('formatMedia', ''),
+            'medium': response_data.get('medium', ''),
+            'support': response_data.get('support', ''),
             'subjects': response_data.get('subjects', []),
             'date_on_drawing': response_data.get('dateOnDrawing', ''),
             'sheet_info': response_data.get('sheetInfo', ''),

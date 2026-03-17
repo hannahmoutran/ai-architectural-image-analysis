@@ -16,6 +16,7 @@ IMAGE_FOLDER = "james-riely-gordon"
 # Set IMAGE_FOLDERS to a list of folder names to process them all sequentially
 # When IMAGE_FOLDERS is set (not None/empty), it takes precedence over IMAGE_FOLDER
 IMAGE_FOLDERS = None  # e.g., ["collection-1", "collection-2", "collection-3"]
+# IMAGE_FOLDERS = ["alfred-zucker", "charles-steven-dillbeck", "james-riely-gordon", "ut-buildings"]
 
 # =============================================================================
 # MODEL CONFIGURATION
@@ -25,11 +26,11 @@ IMAGE_FOLDERS = None  # e.g., ["collection-1", "collection-2", "collection-3"]
 
 # --- Step 1: Image Analysis ---
 # Extracts metadata from architectural drawings
-STEP1_PROVIDER = "openai"
+STEP1_PROVIDER = "gemini"
 
 # --- Step 3: Vocabulary Selection ---
 # Selects best vocabulary terms for each drawing
-STEP3_PROVIDER = "openai"
+STEP3_PROVIDER = "gemini"
 
 # =============================================================================
 # AVAILABLE MODELS BY PROVIDER
@@ -111,6 +112,15 @@ AVAILABLE_MODELS = {
 
 STEP1_MODEL = None  # e.g., "claude-opus-4-5-20250514" or None for default
 STEP3_MODEL = None  # e.g., "gpt-4.1-mini" or None for default
+
+
+# =============================================================================
+# OPENAI GATEWAY CONFIGURATION
+# =============================================================================
+# Set to True to route OpenAI calls through the Portkey gateway (requires
+# PORTKEY_API_KEY and PORTKEY_VIRTUAL_KEY environment variables).
+# Set to False (default) to call the OpenAI API directly.
+OPENAI_USE_PORTKEY = False
 
 
 # =============================================================================

@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
-from openai import OpenAI
+from portkey_ai import Portkey
 import tenacity
 from prompts import ArchitecturalDrawingPrompts
 from shared_utilities import APIStats, find_newest_folder
@@ -65,7 +65,11 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = Portkey(
+    api_key=os.getenv('PORTKEY_API_KEY'),
+    virtual_key=os.getenv('PORTKEY_VIRTUAL_KEY')
+)
+
 DEFAULT_MODEL = "gpt-4.1-mini"
 
 api_stats = APIStats()
@@ -246,29 +250,23 @@ Select the most relevant terms following your instructions. Use exact labels wit
         api_stats.total_requests += 1
         start_time = time.time()
 
-        # Use responses API (same as Step 1) for consistency
-        # Combine system prompt and user prompt for the responses API
-        full_prompt = f"{self.system_prompt}\n\n{user_prompt}"
-
-        response = client.responses.create(
+        response = client.chat.completions.create(
             model=self.model_name,
-            input=[{
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": full_prompt}
-                ]
-            }],
-            max_output_tokens=4000,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=4000,
             temperature=0.1
         )
 
         processing_time = time.time() - start_time
         api_stats.processing_times.append(processing_time)
 
-        api_stats.total_input_tokens += response.usage.input_tokens
-        api_stats.total_output_tokens += response.usage.output_tokens
+        api_stats.total_input_tokens += response.usage.prompt_tokens
+        api_stats.total_output_tokens += response.usage.completion_tokens
 
-        raw_response = response.output_text.strip()
+        raw_response = response.choices[0].message.content.strip()
 
         try:
             parsed_response = self.parse_json_response(raw_response)

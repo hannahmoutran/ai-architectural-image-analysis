@@ -23,7 +23,7 @@ from datetime import datetime
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
-from config import get_step1_config, get_step3_config, get_image_folders, print_current_config
+from config import get_step1_config, get_step3_config, get_image_folders, print_current_config, OPENAI_USE_PORTKEY
 
 
 def find_output_folder_for_image_folder(image_folder_name):
@@ -76,7 +76,7 @@ def run_step(step_num, env_overrides=None, image_folder=None, output_folder=None
         provider = config["provider"]
         script_map = {
             "claude": "step-1-architectural-drawings-claude.py",
-            "openai": "step-1-architectural-drawings-openai.py",
+            "openai": "step-1-architectural-drawings-openai-portkey.py" if OPENAI_USE_PORTKEY else "step-1-architectural-drawings-openai.py",
             "gemini": "step-1-architectural-drawings-gemini.py"
         }
         script_name = script_map.get(provider)
@@ -93,7 +93,7 @@ def run_step(step_num, env_overrides=None, image_folder=None, output_folder=None
         provider = config["provider"]
         script_map = {
             "claude": "step-3-vocab-selection-claude.py",
-            "openai": "step-3-vocab-selection-openai.py",
+            "openai": "step-3-vocab-selection-openai-portkey.py" if OPENAI_USE_PORTKEY else "step-3-vocab-selection-openai.py",
             "gemini": "step-3-vocab-selection-gemini.py"
         }
         script_name = script_map.get(provider)

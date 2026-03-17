@@ -40,11 +40,13 @@ Analyze this image from our architectural archives, in light of the context, and
 
 FIELDS TO EXTRACT:
 - Title: From title block or drawing text. Use [untitled] if none found.
-- Contributors: People/firms with roles, format as "Name (Role)" separated by semicolons. Roles: Architect, Draftsman, Engineer, Contractor, Owner, Firm, etc.
+- Contributors: People/firms with roles, format as "Name (Role)" separated by semicolons. Roles: Architect, Draftsman, Engineer, Contractor, Owner, Firm, Client, etc.
 - Genre: Drawing type (floor plan, elevation, section, detail, site plan, perspective, etc.). Be specific (e.g., "first floor plan"). List multiple types with semicolons.
 - Description: Include a description of physical appearance, architectural content, style, decorative elements, and historical context. Make sure that every sentence is specific to this drawing. 
-- Format Media: Media type (ink on linen, blueprint, pencil on vellum, etc.) and condition if notable.
-- Subjects: Building types, materials, architectural features, decorative elements (max 10, separated by semicolons). These will be used as keywords to search for controlled vocabulary terms via API. 
+- Format Media: Full descriptive phrase for the drawing medium and support (e.g., "ink on linen", "blueprint", "pencil on vellum"). Include condition notes if notable.
+- Medium: The applied medium or material (e.g., ink, graphite, pencil, watercolor, blueprint). Semicolons for multiple. This will be used for Getty AAT lookup.
+- Support: The physical substrate or support material (e.g., linen, vellum, tracing paper, cardboard, paper). Semicolons for multiple. This will be used for Getty AAT lookup.
+- Subjects: Building types, materials, architectural features, decorative elements (max 10, separated by semicolons). These will be used as keywords to search for controlled vocabulary terms via API.
 - Date On Drawing: Dates from title block, stamps, annotations. Use [no date] if none visible.
 - Sheet Info: Sheet number, project number, scale notation.
 - Named Entities: Non-geographic entities as "Name (Type)" - types: Architect, Firm, Person, Building, Organization, etc.
@@ -57,6 +59,8 @@ Contributors: John Smith (Architect); ABC Engineering (Structural Engineer)
 Genre: floor plan
 Description: Floor plan in ink on tracing paper showing a four-bedroom residence with central hallway, formal living and dining rooms at front.
 Format Media: ink on tracing paper
+Medium: ink
+Support: tracing paper
 Subjects: residential architecture; floor plans; single-family homes
 Date On Drawing: March 1925
 Sheet Info: Sheet 3 of 12
@@ -140,6 +144,7 @@ DECISION RULES:
 - Do not force selections based on partial word matches
 - Better to select fewer accurate terms than many irrelevant ones
 - If multiple terms are exactly the same, select the one with the best source (Getty AAT > LCSH > Getty TGN > FAST)
+- For Format/Media terms (medium and support materials), Getty AAT is the authoritative source — prefer Getty AAT terms over all others
 
 You will be provided with drawing metadata and available vocabulary terms organized by topic. For each relevant topic, select the most appropriate term that accurately represents the drawing content.
 

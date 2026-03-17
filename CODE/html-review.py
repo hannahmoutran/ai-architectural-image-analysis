@@ -1004,7 +1004,7 @@ class HTMLReviewBuilder:
             }}
 
             // Store original values for text/textarea fields (for tracking edits including deletions)
-            const textFields = ['title', 'genre', 'description', 'format_media', 'date_on_drawing', 'sheet_info', 'content_warning'];
+            const textFields = ['title', 'genre', 'description', 'format_media', 'medium', 'support', 'date_on_drawing', 'sheet_info', 'content_warning'];
             textFields.forEach(fieldName => {{
                 const storageKey = 'original-field-' + fieldName + '-' + recordId;
                 if (getStorage(storageKey, null) === null) {{
@@ -1368,8 +1368,7 @@ class HTMLReviewBuilder:
                     html += f'<div style="margin: 10px 0;">'
                     html += f'<div style="font-weight: 600; font-size: 13px; color: #555; margin-bottom: 5px;">{source_name} ({len(terms)} options)</div>'
 
-                    # Limit display to first 15 per source to avoid overwhelming
-                    for i, term in enumerate(terms[:15]):
+                    for i, term in enumerate(terms):
                         term_id = f"other-{source_class}-{i}"
                         label = self.escape_html(term['label'])
                         uri = term.get('uri', '')
@@ -1384,11 +1383,82 @@ class HTMLReviewBuilder:
                                 <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
                             </div>
                         </div>'''
-
-                    if len(terms) > 15:
-                        html += f'<div style="padding: 5px; color: #666; font-size: 12px;">... and {len(terms) - 15} more {source_name} terms available</div>'
                     html += '</div>'
 
+                html += '</div>'
+
+        # ==========================================
+        # SECTION 3: FORMAT/MEDIA VOCABULARY (Getty AAT)
+        # ==========================================
+        html += '<div class="section-header" style="margin-top: 25px;">Format/Media Vocabulary (Getty AAT)</div>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Official Getty AAT terms for the drawing medium and support materials. Derived from the Medium and Support fields above.</p>'
+
+        final_medium_terms = analysis.get('final_selected_medium_terms', [])
+        if final_medium_terms:
+            html += '<div class="vocab-group">'
+            html += f'''<div class="vocab-group-title" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Selected Format/Media Terms <span style="font-weight: normal; font-size: 12px; color: #666;">(auto-accepted; reject if not applicable)</span></span>
+            </div>'''
+            for i, term in enumerate(final_medium_terms):
+                term_id = f"medium-selected-{i}"
+                label = self.escape_html(term.get('label', ''))
+                uri = term.get('uri', '')
+                source = term.get('source', 'Unknown')
+                source_class = source.lower().replace(' ', '').replace('getty', '')
+                uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+                derived_from = term.get('derived_from_subject', '')
+                derived_badge = f'<span class="derived-from-badge" title="Derived from: {self.escape_html(derived_from)}">{self.escape_html(derived_from[:25])}{"..." if len(derived_from) > 25 else ""}</span>' if derived_from else ''
+                html += f'''
+                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="medium-selected" data-category="medium-term">
+                    <span class="vocab-term-label">{label}</span>
+                    {derived_badge}
+                    {uri_html}
+                    <span class="vocab-term-source {source_class}">{source}</span>
+                    <div class="term-actions">
+                        <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')">Reject</button>
+                        <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')" style="display:none;">Restore</button>
+                    </div>
+                </div>'''
+            html += '</div>'
+        else:
+            html += '<div class="vocab-group"><p style="color: #999; font-style: italic;">No Format/Media vocabulary terms selected</p></div>'
+
+        # Other Format/Media terms - opt-IN
+        medium_vocab_results = analysis.get('medium_vocabulary_search_results', {})
+        if medium_vocab_results:
+            selected_medium_labels = set(t.get('label', '').lower() for t in final_medium_terms)
+            other_medium_terms = []
+            for topic, terms in medium_vocab_results.items():
+                for term in terms:
+                    label = term.get('label', '')
+                    if label.lower() not in selected_medium_labels:
+                        other_medium_terms.append({
+                            'topic': topic,
+                            'label': label,
+                            'uri': term.get('uri', ''),
+                            'source': term.get('source', 'Getty AAT')
+                        })
+
+            if other_medium_terms:
+                html += '<div class="vocab-group" style="border: 1px dashed #ccc; margin-top: 15px;">'
+                html += '<div class="vocab-group-title">Other Format/Media Options <span style="font-weight: normal; font-size: 12px; color: #666;">(not selected - click Add to include)</span></div>'
+                for i, term in enumerate(other_medium_terms):
+                    term_id = f"medium-other-{i}"
+                    label = self.escape_html(term['label'])
+                    uri = term.get('uri', '')
+                    source = term.get('source', 'Getty AAT')
+                    source_class = source.lower().replace(' ', '').replace('getty', '')
+                    uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+                    html += f'''
+                    <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="medium-other" data-category="medium-term">
+                        <span class="vocab-term-label">{label}</span>
+                        {uri_html}
+                        <span class="vocab-term-source {source_class}">{source}</span>
+                        <div class="term-actions">
+                            <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
+                            <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
+                        </div>
+                    </div>'''
                 html += '</div>'
 
         # Custom subject headings container and add form
@@ -1471,6 +1541,8 @@ class HTMLReviewBuilder:
             ('genre', 'Genre', 'text'),
             ('description', 'Description', 'textarea-large'),
             ('format_media', 'Format/Media', 'text'),
+            ('medium', 'Medium (for Getty AAT lookup)', 'text'),
+            ('support', 'Support (for Getty AAT lookup)', 'text'),
             ('date_on_drawing', 'Date on Drawing', 'text'),
             ('sheet_info', 'Sheet Info', 'textarea'),
             ('content_warning', 'Content Warning', 'text'),

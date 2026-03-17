@@ -26,7 +26,7 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY_DIRECT'))
 DEFAULT_MODEL = "gpt-5.1"  # Default model, change as needed
 
 api_stats = APIStats()
@@ -62,6 +62,8 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
         'description': 'description',
         'format media': 'formatMedia',
         'formatmedia': 'formatMedia',
+        'medium': 'medium',
+        'support': 'support',
         'subjects': 'subjects',
         'date on drawing': 'dateOnDrawing',
         'dateondrawing': 'dateOnDrawing',
@@ -265,7 +267,7 @@ def prepare_batch_requests(all_images, model_name, collection_context=""):
                 "role": "user",
                 "content": [
                     {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"}
+                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}", "detail": "low"}
                 ]
             }],
             "max_output_tokens": 3000
@@ -344,7 +346,7 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
             "role": "user",
             "content": [
                 {"type": "input_text", "text": prompt},
-                {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"}
+                {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}", "detail": "high"}
             ]
         }],
         max_output_tokens=3000,
@@ -365,7 +367,7 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
     if parsed_data:
         # Ensure required fields exist with defaults
         required_fields = ['title', 'contributors', 'genre',
-                          'description', 'formatMedia', 'subjects', 'dateOnDrawing', 'sheetInfo',
+                          'description', 'formatMedia', 'medium', 'support', 'subjects', 'dateOnDrawing', 'sheetInfo',
                           'namedEntities', 'geographicEntities', 'contentWarning']
 
         for field in required_fields:
@@ -521,6 +523,8 @@ def create_error_response(raw_response, error):
         "genre": "",
         "description": raw_response,
         "formatMedia": "",
+        "medium": "",
+        "support": "",
         "subjects": [],
         "dateOnDrawing": "",
         "sheetInfo": "",
@@ -542,6 +546,8 @@ def create_result_entry(folder_name, page_number, img_path, response_data, raw_r
             'genre': response_data.get('genre', ''),
             'description': response_data.get('description', ''),
             'format_media': response_data.get('formatMedia', ''),
+            'medium': response_data.get('medium', ''),
+            'support': response_data.get('support', ''),
             'subjects': response_data.get('subjects', []),
             'date_on_drawing': response_data.get('dateOnDrawing', ''),
             'sheet_info': response_data.get('sheetInfo', ''),

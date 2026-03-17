@@ -118,6 +118,24 @@ STEP3_PROVIDER = "claude"  # can use different provider for vocab selection
 STEP1_MODEL = "claude-opus-4-5-20250514"  # or None for provider default
 ```
 
+#### OpenAI via Portkey Gateway (Optional)
+
+If your organization routes OpenAI calls through [Portkey](https://portkey.ai/), set the following in `config.py`:
+
+```python
+OPENAI_USE_PORTKEY = True  # Default is False (direct OpenAI API)
+```
+
+Then set your Portkey credentials as environment variables:
+```bash
+export PORTKEY_API_KEY="your-portkey-api-key"
+export PORTKEY_VIRTUAL_KEY="your-portkey-virtual-key"
+```
+
+Both values can be found in the Portkey dashboard under Getting Started. The **virtual key** is the slug for your OpenAI provider connection (e.g. `your-org-name-openai`).
+
+When enabled, `run.py` will automatically use the Portkey-based scripts for Steps 1 and 3. If you are calling OpenAI directly, leave `OPENAI_USE_PORTKEY = False` and set `OPENAI_API_KEY` as usual.
+
 ### OpenAI Batch Processing
 
 When using OpenAI for Step 1 (image analysis), you can enable **Batch API processing** for 50% cost savings. This is offered as a prompt when running `python run.py`:

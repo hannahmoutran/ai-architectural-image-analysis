@@ -1,11 +1,10 @@
-# Extracts metadata from architectural drawings using Google's Gemini model
+# Extracts metadata from architectural drawings using OpenAI via Portkey gateway
 import os
 import json
 import base64
 import logging
 from datetime import datetime
-from google import genai
-from google.genai import types
+from portkey_ai import Portkey
 import tenacity
 import re
 from PIL import Image as PILImage
@@ -20,18 +19,20 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Import custom modules
 from model_pricing import calculate_cost
 from token_logging import create_token_usage_log, log_individual_response
+from batch_processor import BatchProcessor
 
 # Suppress verbose HTTP logging
-logging.getLogger("google").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# Initialize Gemini client with GEMINI_API_KEY
-client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
-DEFAULT_MODEL = "gemini-3-flash-preview"  # Options: gemini-3-pro-preview, gemini-3-flash-preview
+client = Portkey(
+    api_key=os.getenv('PORTKEY_API_KEY'),
+    virtual_key=os.getenv('PORTKEY_VIRTUAL_KEY')
+)
+DEFAULT_MODEL = "gpt-5.1"  # Default model, change as needed
 
 api_stats = APIStats()
-
 
 def parse_json_response(raw_response):
     """JSON parsing with trailing comma handling."""
@@ -42,9 +43,8 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
     """
     Parse key-value format response from LLM into a dictionary.
 
-    Expected format (supports both plain and markdown-formatted):
+    Expected format:
     Title: First Floor Plan - Smith Residence
-    **Title:** First Floor Plan - Smith Residence
     Contributors: John Smith (Architect); ABC Engineering (Structural Engineer)
     Genre: floor plan
     ...
@@ -86,18 +86,10 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
     for line in raw_response.split('\n'):
         # Check if this line starts a new field
         found_field = False
-
-        # Strip markdown formatting (**, *, #) from the line for field detection
-        cleaned_line = line.strip()
-        # Remove leading markdown headers (# ## ### etc.)
-        cleaned_line = re.sub(r'^#+\s*', '', cleaned_line)
-        # Remove bold/italic markers around the field name
-        cleaned_line = re.sub(r'^\*+\s*', '', cleaned_line)
-        cleaned_line = re.sub(r'\*+', '', cleaned_line)
-        cleaned_line_lower = cleaned_line.lower()
+        line_lower = line.lower().strip()
 
         for display_name, dict_key in field_mapping.items():
-            if cleaned_line_lower.startswith(display_name + ':'):
+            if line_lower.startswith(display_name + ':'):
                 # Save previous field if exists
                 if current_key:
                     value = ' '.join(current_value_lines).strip()
@@ -105,21 +97,17 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
 
                 # Start new field
                 current_key = dict_key
-                # Get value after the colon (use cleaned line to preserve case of value)
-                colon_pos = cleaned_line.lower().find(display_name + ':')
+                # Get value after the colon (use original line to preserve case)
+                colon_pos = line.lower().find(display_name + ':')
                 if colon_pos != -1:
                     value_start = colon_pos + len(display_name) + 1
-                    current_value_lines = [cleaned_line[value_start:].strip()]
+                    current_value_lines = [line[value_start:].strip()]
                 found_field = True
                 break
 
         # If no new field found and we have a current key, this is a continuation
-        # Skip lines that are just markdown headers or empty
         if not found_field and current_key and line.strip():
-            stripped = line.strip()
-            # Skip markdown header lines (e.g., "# Metadata Extraction")
-            if not stripped.startswith('#'):
-                current_value_lines.append(stripped)
+            current_value_lines.append(line.strip())
 
     # Save the last field
     if current_key:
@@ -262,51 +250,41 @@ def load_collection_context(input_folder: str = None) -> str:
     )
 
 
-def get_image_media_type(img_path: str) -> str:
-    """Get the media type for an image based on its extension."""
-    ext = os.path.splitext(img_path)[1].lower()
-    media_types = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp'
-    }
-    # TIFF files will be converted to JPEG, so return jpeg type
-    if ext in ['.tif', '.tiff']:
-        return 'image/jpeg'
-    return media_types.get(ext, 'image/jpeg')
+def prepare_batch_requests(all_images, model_name, collection_context=""):
+    """Prepare all requests for batch processing using Responses API format."""
+    batch_requests = []
+    custom_id_mapping = {}
 
+    # Get the architectural drawing prompt with collection context
+    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context)
 
-def prepare_image_for_api(image_path: str) -> tuple[bytes, str]:
-    """
-    Prepare an image for the Gemini API.
-    Converts unsupported formats (like TIFF) to JPEG.
+    for i, (folder_name, page_number, img_path) in enumerate(all_images):
+        # Prepare base64 image
+        with open(img_path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
 
-    Returns:
-        Tuple of (image_bytes, media_type)
-    """
-    ext = os.path.splitext(image_path)[1].lower()
+        # Create request data for Responses API
+        request_data = {
+            "model": model_name,
+            "input": [{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}", "detail": "low"}
+                ]
+            }],
+            "max_output_tokens": 3000
+        }
 
-    # Gemini API supports: jpeg, png, gif, webp
-    # TIFF needs to be converted
-    if ext in ['.tif', '.tiff']:
-        img = PILImage.open(image_path)
-        # Convert to RGB if necessary (TIFF can be RGBA or other modes)
-        if img.mode in ('RGBA', 'LA', 'P'):
-            img = img.convert('RGB')
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
+        batch_requests.append(request_data)
+        custom_id_mapping[f"arch_drawing_{i}"] = {
+            "folder_name": folder_name,
+            "page_number": page_number,
+            "img_path": img_path,
+            "row_number": i + 2  # +2 for header row
+        }
 
-        # Save to bytes buffer as JPEG
-        buffer = BytesIO()
-        img.save(buffer, format='JPEG', quality=95)
-        buffer.seek(0)
-        return buffer.read(), 'image/jpeg'
-    else:
-        # For supported formats, read directly
-        with open(image_path, "rb") as image_file:
-            return image_file.read(), get_image_media_type(image_path)
+    return batch_requests, custom_id_mapping
 
 
 def collect_all_images(input_folder):
@@ -352,12 +330,13 @@ def collect_all_images(input_folder):
 @tenacity.retry(
     wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),
     stop=tenacity.stop_after_attempt(3),
-    retry=tenacity.retry_if_exception_type(Exception)
+    retry=tenacity.retry_if_exception_type(Exception),
+    before_sleep=tenacity.before_sleep_log(logging.getLogger(__name__), logging.ERROR)
 )
 def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
     """Process a single architectural drawing image and return the parsed response."""
-    # Prepare image (converts TIFF to JPEG if needed)
-    image_bytes, media_type = prepare_image_for_api(image_path)
+    with open(image_path, "rb") as image_file:
+        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
 
     # Get the architectural drawing prompt with collection context
     prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context)
@@ -365,41 +344,28 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
     api_stats.total_requests += 1
     start_time = time.time()
 
-    # Create the content with image and text
-    response = client.models.generate_content(
+    max_tokens_key = "max_completion_tokens" if (model_name.startswith('gpt-5') or model_name.startswith('o1') or model_name.startswith('o3')) else "max_tokens"
+
+    response = client.chat.completions.create(
         model=model_name,
-        contents=[
-            types.Content(
-                parts=[
-                    types.Part(
-                        inline_data=types.Blob(
-                            mime_type=media_type,
-                            data=image_bytes,
-                        )
-                    ),
-                    types.Part(text=prompt)
-                ]
-            )
-        ],
-        config=types.GenerateContentConfig(
-            max_output_tokens=3000,
-            # Use low thinking level for faster responses on straightforward extraction
-            thinking_config=types.ThinkingConfig(thinking_level="low")
-        )
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "high"}}
+            ]
+        }],
+        **{max_tokens_key: 3000},
+        temperature=0.3
     )
 
     processing_time = time.time() - start_time
     api_stats.processing_times.append(processing_time)
 
-    # Extract token usage from response
-    # Gemini returns usage_metadata with prompt_token_count and candidates_token_count
-    input_tokens = response.usage_metadata.prompt_token_count if response.usage_metadata else 0
-    output_tokens = response.usage_metadata.candidates_token_count if response.usage_metadata else 0
+    api_stats.total_input_tokens += response.usage.prompt_tokens
+    api_stats.total_output_tokens += response.usage.completion_tokens
 
-    api_stats.total_input_tokens += input_tokens
-    api_stats.total_output_tokens += output_tokens
-
-    raw_response = response.text.strip()
+    raw_response = response.choices[0].message.content.strip()
 
     # Use key-value parsing function for the new format
     parsed_data, error = parse_key_value_response(raw_response)
@@ -420,22 +386,14 @@ def process_image(image_path, model_name=DEFAULT_MODEL, collection_context=""):
         # Post-process the response
         parsed_data = postprocess_api_response(parsed_data)
 
-        # Create a usage object similar to Anthropic's for compatibility
-        class UsageInfo:
-            def __init__(self, input_tokens, output_tokens):
-                self.input_tokens = input_tokens
-                self.output_tokens = output_tokens
-
-        usage = UsageInfo(input_tokens, output_tokens)
-
-        return parsed_data, raw_response, usage, processing_time
+        return parsed_data, raw_response, response.usage, processing_time
     else:
         logging.error(f"Key-value parsing failed for {image_path}: {error}\nRaw response: {raw_response}")
         raise Exception(f"Key-value parsing failed: {error}")
 
 
 def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL, collection_context=""):
-    """Process folder - Gemini uses individual processing."""
+    """Process folder using batch processing when appropriate."""
 
     # Create logs folder
     logs_folder_path = os.path.join(output_dir, "logs")
@@ -446,14 +404,119 @@ def process_folder_with_batch(input_folder, output_dir, model_name=DEFAULT_MODEL
     all_images = collect_all_images(input_folder)
     total_items = len(all_images)
 
+    # Initialize batch processor and check if we should use batch processing
+    processor = BatchProcessor()
+    use_batch = processor.should_use_batch(total_items)
+
     print(f"\nFound {total_items} images to process")
-    print(f"Processing mode: INDIVIDUAL")
+    print(f"Processing mode: {'BATCH' if use_batch else 'INDIVIDUAL'}")
     print(f"Model: {model_name}")
 
     all_results = []
     issues = []
+    items_with_issues = 0
 
-    # Use individual processing
+    if use_batch:
+        print(f" Preparing {total_items} requests for batch processing...")
+
+        # Estimate costs
+        batch_requests, custom_id_mapping = prepare_batch_requests(all_images, model_name, collection_context)
+        cost_estimate = processor.estimate_batch_cost(batch_requests, model_name)
+
+        print(f" Estimated cost: ${cost_estimate['batch_cost']:.4f} (${cost_estimate['savings']:.4f} savings)")
+
+        # Convert to batch format
+        formatted_requests = processor.create_batch_requests(batch_requests, "arch_drawing")
+
+        # Submit batch
+        batch_id = processor.submit_batch(
+            formatted_requests,
+            f"Architectural Drawings Metadata - {total_items} images - {datetime.now().strftime('%Y-%m-%d')}"
+        )
+
+        # Wait for completion
+        batch_results = processor.wait_for_completion(batch_id, max_wait_hours=24, check_interval_minutes=5)
+
+        if batch_results:
+            # Process batch results
+            processed_results = processor.process_batch_results(batch_results, custom_id_mapping)
+
+            print(f"Processing batch results...")
+
+            # Track tokens for logging
+            api_stats.total_input_tokens = processed_results["summary"]["total_prompt_tokens"]
+            api_stats.total_output_tokens = processed_results["summary"]["total_completion_tokens"]
+
+            # Process each result
+            for custom_id, result_data in processed_results["results"].items():
+                if custom_id.startswith("arch_drawing_"):
+                    parts = custom_id.split("_")
+                    if len(parts) >= 3:
+                        try:
+                            index = int(parts[2])
+                            mapping_key = f"arch_drawing_{index}"
+
+                            if mapping_key in custom_id_mapping:
+                                folder_name = custom_id_mapping[mapping_key]["folder_name"]
+                                page_number = custom_id_mapping[mapping_key]["page_number"]
+                                img_path = custom_id_mapping[mapping_key]["img_path"]
+                                row_number = custom_id_mapping[mapping_key]["row_number"]
+
+                                if result_data["success"]:
+                                    raw_response = result_data["content"]
+                                    usage = result_data["usage"]
+
+                                    # Use key-value parsing for the new format
+                                    parsed_data, error = parse_key_value_response(raw_response)
+
+                                    if parsed_data:
+                                        response_data = postprocess_api_response(parsed_data)
+                                    else:
+                                        response_data = create_error_response(raw_response, error)
+
+                                    log_individual_response(
+                                        logs_folder_path=logs_folder_path,
+                                        script_name="architectural_drawings_metadata",
+                                        row_number=row_number,
+                                        barcode=f"{folder_name}_drawing{page_number}",
+                                        response_text=raw_response,
+                                        model_name=model_name,
+                                        prompt_tokens=usage.get("prompt_tokens", 0),
+                                        completion_tokens=usage.get("completion_tokens", 0),
+                                        processing_time=0
+                                    )
+
+                                else:
+                                    raw_response = f"Error: {result_data['error']}"
+                                    items_with_issues += 1
+                                    response_data = create_error_response(raw_response, result_data['error'])
+                                    issues.append({"image_path": img_path, "error": result_data['error']})
+
+                                    log_individual_response(
+                                        logs_folder_path=logs_folder_path,
+                                        script_name="architectural_drawings_metadata",
+                                        row_number=row_number,
+                                        barcode=f"{folder_name}_drawing{page_number}",
+                                        response_text=raw_response,
+                                        model_name=model_name,
+                                        prompt_tokens=0,
+                                        completion_tokens=0,
+                                        processing_time=0
+                                    )
+
+                                # Add to results
+                                all_results.append(create_result_entry(folder_name, page_number,
+                                                                       img_path, response_data, raw_response))
+
+                        except (ValueError, IndexError) as e:
+                            logging.error(f"Error processing custom_id {custom_id}: {e}")
+                            continue
+
+            summary = processed_results["summary"]
+            return (all_results, api_stats, total_items, items_with_issues, 0,
+                   summary["total_prompt_tokens"], summary["total_completion_tokens"], issues, True)
+
+    # Fall back to individual processing
     return process_folder_individual(all_images, logs_folder_path, model_name, all_results,
                                      issues, collection_context)
 
@@ -523,17 +586,17 @@ def process_folder_individual(all_images, logs_folder_path, model_name, all_resu
 
             log_individual_response(
                 logs_folder_path=logs_folder_path,
-                script_name="architectural_drawings_metadata_gemini",
+                script_name="architectural_drawings_metadata",
                 row_number=row_number,
                 barcode=f"{folder_name}_drawing{page_number}",
                 response_text=raw_response,
                 model_name=model_name,
-                prompt_tokens=usage.input_tokens if usage else 0,
-                completion_tokens=usage.output_tokens if usage else 0,
+                prompt_tokens=usage.prompt_tokens if usage else 0,
+                completion_tokens=usage.completion_tokens if usage else 0,
                 processing_time=processing_time
             )
 
-            print(f"   Processed successfully - Tokens: {(usage.input_tokens + usage.output_tokens) if usage else 0:,}")
+            print(f"   Processed successfully - Tokens: {(usage.prompt_tokens + usage.completion_tokens) if usage else 0:,}")
 
         except Exception as e:
             logging.error(f"Error processing {img_path}: {str(e)}")
@@ -546,7 +609,7 @@ def process_folder_individual(all_images, logs_folder_path, model_name, all_resu
 
             log_individual_response(
                 logs_folder_path=logs_folder_path,
-                script_name="architectural_drawings_metadata_gemini",
+                script_name="architectural_drawings_metadata",
                 row_number=row_number,
                 barcode=f"{folder_name}_drawing{page_number}",
                 response_text=raw_response,
@@ -590,7 +653,7 @@ def main():
         print(f"Input folder not found: {os.path.abspath(input_folder)}")
         return 1
 
-    print(f"\nARCHITECTURAL DRAWINGS METADATA EXTRACTION (Gemini)\n")
+    print(f"\nARCHITECTURAL DRAWINGS METADATA EXTRACTION\n")
     if collection_context:
         print(f"Collection context: {input_folder_name}")
     print(f"Using input folder: image_folders/{input_folder_name}")
@@ -647,8 +710,7 @@ def main():
     # Calculate script metrics
     script_duration = time.time() - script_start_time
 
-    # Calculate actual cost using Gemini pricing
-    # Note: model_pricing.py will need Gemini models added, or use a fallback
+    # Calculate actual cost
     estimated_cost = calculate_cost(
         model_name=model_name,
         prompt_tokens=total_prompt_tokens,
@@ -664,7 +726,7 @@ def main():
     # Create standardized token usage log
     create_token_usage_log(
         logs_folder_path=logs_folder_path,
-        script_name="architectural_drawings_metadata_gemini",
+        script_name="architectural_drawings_metadata",
         model_name=model_name,
         total_items=total_items,
         items_with_issues=items_with_issues,
@@ -682,7 +744,7 @@ def main():
     )
 
     # Final summary - terminal output
-    print(f"\nSTEP 1 COMPLETE (Gemini)")
+    print(f"\nSTEP 1 COMPLETE")
     print(f"Successfully processed: {total_items - items_with_issues}/{total_items} drawings")
     print(f"Items with issues: {items_with_issues}")
     print(f"Total script time: {script_duration:.1f}s ({script_duration/60:.1f} minutes)")
