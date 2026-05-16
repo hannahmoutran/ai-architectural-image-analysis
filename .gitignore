@@ -21,11 +21,12 @@ myenv/
 **/.DS_Store
 ._*
 
-# Project-specific - ignore data folders
+# Project-specific
 CODE/output_folders/
 CODE/image_folders/
 CODE/other-code/
 claude.md
+CODE/compare-evaluator-results.py
 
 # Output files (keep code, ignore generated data)
 *.xlsx

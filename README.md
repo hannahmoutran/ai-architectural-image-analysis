@@ -30,7 +30,7 @@ This system uses LLMs (Claude, OpenAI, Gemini) to:
 ## Workflow
 
 ```
-Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3: VOCAB SELECTION → Step 4: ENTITY REPORT → Step 5: HTML REVIEW → Step 6: INTEGRATE EDITS
+Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3: VOCAB SELECTION → Step 4: ENTITY REPORT → HTML REVIEW → INTEGRATE EDITS
 ```
 
 | Step | Scripts | Purpose |
@@ -40,8 +40,9 @@ Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3
 | **2** | `step-2-terms.py` | Query controlled vocabulary APIs (LCSH, FAST, Getty AAT/TGN) |
 | **3** | `step-3-vocab-selection-{claude,openai,gemini}.py`, `step-3-vocab-selection-openai-portkey.py` | AI selects best vocabulary terms from search results |
 | **4** | `step-4-entity-report-creation.py` | Compile named entity authority file with fuzzy matching |
-| **5** | `html-review.py` | Generate interactive HTML review interface for archivist curation |
-| **6** | `integrate-archivist-edits.py` | Apply archivist edits back to metadata files, generate edit statistics |
+| — | `html-review.py` | Generate interactive HTML review interface for archivist curation |
+| — | `integrate-archivist-edits.py` | Apply archivist edits back to metadata files; generates `edit_report.json` (stats + edit history) and `final_deliverable.xlsx`. Supports **analysis-only mode** (`--evaluator` flag) to generate named reports without modifying any workflow files — useful for comparing multiple evaluators on the same output. |
+| — | `batch-evaluator-reports.py` | Batch-process all decisions JSONs for one evaluator across multiple collections/models, automatically locating each pipeline output folder and running `integrate-archivist-edits.py` in analysis-only mode. Reports are written to `{EvaluatorName}_changes/` inside the evaluator's folder. |
 
 ## LLM Providers
 
@@ -179,6 +180,49 @@ Or disable it entirely:
 USE_BATCH_PROCESSING=false python run.py
 ```
 
+### Integrating Archivist Edits (Step 6)
+
+After archivist review, run Step 6 to apply decisions back to the metadata:
+
+```bash
+python integrate-archivist-edits.py                          # Use latest export
+python integrate-archivist-edits.py --decisions path/to.json # Use specific export
+```
+
+This updates `drawings_workflow.json`, generates `final_metadata.json`, produces `edit_report.json`, and creates `final_deliverable.xlsx` (two sheets: Final Metadata and Edit Statistics).
+
+#### Analysis-Only Mode (comparing multiple evaluators)
+
+Pass `--evaluator` to generate a named report **without modifying any workflow files**:
+
+```bash
+python integrate-archivist-edits.py --evaluator "Alice" --decisions alice_edits.json --folder /path/to/pipeline/output --output /path/to/reports
+python integrate-archivist-edits.py --evaluator "Bob"   --decisions bob_edits.json   --folder /path/to/pipeline/output --output /path/to/reports
+```
+
+This generates `edit_report_Alice_<folder>_<date>.json` and `edit_report_Bob_<folder>_<date>.json` for side-by-side comparison.
+
+#### Batch Evaluator Reports
+
+To process all of one evaluator's decisions files at once across multiple collections/models:
+
+```bash
+python batch-evaluator-reports.py          # Interactive — prompts for evaluator folder
+python batch-evaluator-reports.py --dry-run  # Preview what would run
+```
+
+Expected folder structure:
+```
+<testing-folder>/
+├── claude/     ArchImagesAI_* (pipeline output folders)
+├── openai/     ArchImagesAI_*
+├── gemini/     ArchImagesAI_*
+└── evaluations/
+    └── <EvaluatorName>/
+        ├── <collection>_<model>_<Evaluator>_<date>.json  ← decisions files
+        └── <EvaluatorName>_changes/                       ← reports written here
+```
+
 ### Key Files
 
 - **[config.py](CODE/config.py)** - Central configuration for folders and providers
@@ -215,8 +259,8 @@ ArchImagesAI_{collection}_{model}_{date}_Time_{time}/
 │   │   ├── drawings_workflow.json    # Main workflow data
 │   │   ├── final_metadata.json       # Approved data only
 │   │   ├── vocabulary_mapping.json   # All vocab results
-│   │   └── edit_changelog.json       # Archivist changes
-│   └── drawings_workflow.xlsx        # Excel deliverable
+│   │   └── edit_report.json          # Edit statistics + full edit history
+│   └── final_deliverable.xlsx        # Excel: Final Metadata + Edit Statistics sheets
 ├── logs/
 │   ├── *_token_usage_log.txt
 │   └── *_api_usage_log.txt
@@ -252,7 +296,7 @@ University of Texas at Austin Libraries
 - Karina Sanchez - Scholars Lab Librarian
 - Katie Pierce Meyer - Head of Architectural Collections
 - Josh Conrad - Digital Initiatives Archival Fellow
-
+- Caitlin Young - GRA, UT Libraries
 
 ## Development
 
