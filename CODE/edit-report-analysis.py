@@ -1,0 +1,1092 @@
+#!/usr/bin/env python3
+"""
+Edit Report Analysis
+====================
+
+Compiles all evaluator edit reports into a 5-tab Excel workbook for
+cross-evaluator and cross-model analysis.
+
+Tabs:
+  1. Model Overview      — which model performs best overall?
+  2. Task Breakdown      — which fields/tasks need the most editing?
+  3. Evaluator Behavior  — are some evaluators stricter? more likely to add terms?
+  4. Collection Difficulty — which collections are hardest for LLMs?
+  5. Evaluator Notes     — all archivist notes in one place
+
+Usage:
+    python edit-report-analysis.py
+    python edit-report-analysis.py --evaluations-dir /path/to/evaluations
+    python edit-report-analysis.py --output-dir /path/to/output
+
+Expects edit_report_*.json files at:
+    {evaluations_dir}/{EvaluatorName}/{EvaluatorName}_changes/edit_report_*.json
+
+Output: edit_report_analysis_{YYYY-MM-DD}.xlsx
+"""
+
+import os
+import sys
+import re
+import json
+import argparse
+import statistics
+from datetime import date
+from collections import defaultdict
+
+import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.utils import get_column_letter
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+TEXT_FIELDS = [
+    "title", "description", "format_media", "genre", "medium",
+    "support", "sheet_info", "date_on_drawing", "content_warning",
+]
+LIST_FIELDS = ["contributors", "named_entities", "geographic_entities"]
+
+HEADER_FILL = PatternFill("solid", fgColor="2C3E50")
+HEADER_FONT = Font(color="FFFFFF", bold=True)
+TITLE_FONT  = Font(bold=True, size=13)
+CENTER      = Alignment(horizontal="center", vertical="center", wrap_text=True)
+TOP_WRAP    = Alignment(vertical="top", wrap_text=True)
+
+# Alternating row fills for the glossary tab (one shade per tab group)
+_GLOSS_FILLS = [
+    PatternFill("solid", fgColor="EBF5FB"),  # light blue
+    PatternFill("solid", fgColor="F4F6F6"),  # light grey
+]
+
+GLOSSARY = [
+    # ── Model Overview ────────────────────────────────────────────────────────
+    {
+        "Tab": "Model Overview",
+        "Metric": "Edit Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Percentage of reviewed records where the evaluator made at least one change. "
+            "The primary measure of how much the AI's output needed correction."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Text % Changed",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Among text fields that were edited, the average percentage of the text content "
+            "that changed (measured by character edit distance). Lower means the AI's phrasing "
+            "was close to what the archivist wanted even when a change was made."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "List Item Retention (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "For list fields (contributors, named entities, geographic entities), the percentage "
+            "of AI-generated items the archivist kept. High retention means the model surfaced "
+            "accurate, usable items."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Subject Acceptance (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "Percentage of AI-suggested subject terms the archivist approved without modification. "
+            "High acceptance means the model's subject suggestions were well-matched to the collection."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Heading Approval (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "Percentage of AI-suggested full subject headings (complete LCSH or FAST strings) "
+            "the archivist approved. Distinct from Subject Acceptance because a subject term can "
+            "be correct while the full heading form still needs adjustment."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Archivist Addition Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Percentage of records where the archivist selected at least one controlled vocabulary "
+            "term that the model had not suggested — i.e., chose a term from the 'other choices' "
+            "list in the review interface. A high rate means the model was regularly missing terms "
+            "the archivist considered important."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Avg Custom Terms Added",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Average number of controlled vocabulary terms per record that the archivist added "
+            "from the vocabulary search results (not generated by the AI). Complements Archivist "
+            "Addition Rate by showing quantity, not just presence."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Avg Custom Subjects Added",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Average number of subject terms per record that the archivist wrote in manually, "
+            "outside the AI's suggestions. High values indicate the model's subject coverage "
+            "was insufficient for this collection."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Collections",
+        "Direction": "—",
+        "Definition": (
+            "Number of distinct archival collections included in the reports for this model."
+        ),
+    },
+    {
+        "Tab": "Model Overview",
+        "Metric": "Evaluators",
+        "Direction": "—",
+        "Definition": (
+            "Number of distinct evaluators whose reports are included for this model. "
+            "A model reviewed by more evaluators produces more reliable averages."
+        ),
+    },
+    # ── Task Breakdown ────────────────────────────────────────────────────────
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Field",
+        "Direction": "—",
+        "Definition": (
+            "The specific metadata field being measured (e.g., title, description, "
+            "contributors, named_entities)."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Field Type",
+        "Direction": "—",
+        "Definition": (
+            "Whether the field holds a single block of free text (text) or a list of discrete "
+            "items (list). Text and list fields use different quality metrics."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "[Model name columns]",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Edit rate (%) for this specific field when using that model — the percentage of "
+            "records where the archivist changed this field. One column appears per model in "
+            "the dataset."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg Edit Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Average edit rate across all models and evaluators for this field. Used to rank "
+            "fields from most-edited (most improvement needed) to least-edited."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg % Changed",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Text fields only. Among records where the field was edited, the average proportion "
+            "of the text that changed (0–100%). A field with an 80% edit rate but only 5% text "
+            "changed means edits were mostly small tweaks rather than full rewrites."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg Sim When Edited (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "Text fields only. Fuzzy string similarity (0–100%) between the AI's original output "
+            "and the archivist's final version, measured only on records that were edited. Higher "
+            "means the edit was minor even when a change occurred."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg Token Sort Ratio",
+        "Direction": "Higher = better",
+        "Definition": (
+            "Text fields only. A word-order-insensitive similarity score for edited text fields. "
+            "Scores 100 when the same words appear but in a different order. Useful for detecting "
+            "reordering without content change — e.g., flipping 'ink on linen' to 'linen, ink.'"
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg Retention Rate (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "List fields only. The average percentage of AI-generated list items the archivist "
+            "kept. A high retention rate means the model's items were accurate and relevant."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg Items Removed Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "List fields only. The average percentage of AI-generated items the archivist "
+            "removed, relative to the original count. High values indicate the model added "
+            "too many items, or items of poor quality."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "Avg Items Added Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "List fields only. The average percentage of items the archivist added relative to "
+            "the original AI-generated count. High values indicate the model missed items that "
+            "the archivist needed to supply."
+        ),
+    },
+    {
+        "Tab": "Task Breakdown",
+        "Metric": "subjects — rejection rate",
+        "Direction": "Lower = better",
+        "Definition": (
+            "The subjects row is displayed as a rejection rate (100 minus acceptance rate) rather "
+            "than a raw edit rate, so it reads consistently alongside the other fields. A low "
+            "rejection rate means the model's subject suggestions were largely accepted."
+        ),
+    },
+    # ── Evaluator Behavior ────────────────────────────────────────────────────
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Records Reviewed",
+        "Direction": "—",
+        "Definition": (
+            "Total number of drawing records this evaluator reviewed across all collections "
+            "and models in the dataset."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Edit Rate (%)",
+        "Direction": "—",
+        "Definition": (
+            "Percentage of records where this evaluator made at least one edit. Reflects "
+            "overall strictness, but is also influenced by which models and collections "
+            "they happened to review."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Records Unchanged (%)",
+        "Direction": "Higher = less strict",
+        "Definition": (
+            "Percentage of records where the evaluator made no edits at all, accepting the "
+            "AI's output as-is. A low unchanged rate may reflect a demanding evaluator, a "
+            "difficult collection, or a weak model — context matters."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Text % Changed",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Among text fields this evaluator edited, the average proportion of text content "
+            "that changed. Helps distinguish heavy rewriters from light editors."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Subject Acceptance (%)",
+        "Direction": "Higher = less strict",
+        "Definition": (
+            "Percentage of AI-suggested subject terms this evaluator approved. Lower values may "
+            "indicate stricter subject standards or deep specialization in the collection domain."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Heading Approval (%)",
+        "Direction": "Higher = less strict",
+        "Definition": (
+            "Percentage of AI-suggested full subject headings this evaluator approved. "
+            "See Model Overview for the full definition."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Archivist Addition Rate (%)",
+        "Direction": "—",
+        "Definition": (
+            "Percentage of records where this evaluator added at least one controlled vocabulary "
+            "term the model missed. High rates may reflect an evaluator who searches the "
+            "vocabulary lists thoroughly, or a model that underperforms on their collections."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Avg Custom Terms Added",
+        "Direction": "—",
+        "Definition": (
+            "Average number of vocabulary terms per record this evaluator added from search "
+            "results (not generated by the AI). See Model Overview for the full definition."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Avg Custom Subjects Added",
+        "Direction": "—",
+        "Definition": (
+            "Average number of subject terms per record this evaluator wrote in manually. "
+            "See Model Overview for the full definition."
+        ),
+    },
+    {
+        "Tab": "Evaluator Behavior",
+        "Metric": "Notes Written (%)",
+        "Direction": "—",
+        "Definition": (
+            "Percentage of records for which the evaluator typed a note in the review interface. "
+            "Evaluators who write notes frequently provide richer qualitative feedback."
+        ),
+    },
+    # ── Collection Difficulty ─────────────────────────────────────────────────
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Records Reviewed",
+        "Direction": "—",
+        "Definition": (
+            "Total number of drawing records reviewed for this collection across all models "
+            "and evaluators."
+        ),
+    },
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Avg Edit Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Average edit rate for this collection across all models and evaluators. "
+            "Collections are sorted by this value, hardest (highest) first."
+        ),
+    },
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Avg Text % Changed",
+        "Direction": "Lower = better",
+        "Definition": (
+            "Among text fields edited for this collection, the average proportion of text "
+            "that changed. High values suggest content the models consistently struggle "
+            "to describe accurately."
+        ),
+    },
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Subject Acceptance (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "Average percentage of AI-suggested subject terms approved for this collection. "
+            "Low values may indicate specialized subject matter the models have difficulty "
+            "identifying correctly."
+        ),
+    },
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Heading Approval (%)",
+        "Direction": "Higher = better",
+        "Definition": (
+            "Average percentage of AI-suggested full subject headings approved for this "
+            "collection. See Model Overview for the full definition."
+        ),
+    },
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Best Model",
+        "Direction": "—",
+        "Definition": (
+            "The model with the lowest average edit rate for this collection — the model "
+            "whose output required the fewest corrections from evaluators for this specific "
+            "collection."
+        ),
+    },
+    {
+        "Tab": "Collection Difficulty",
+        "Metric": "Best Model Edit Rate (%)",
+        "Direction": "Lower = better",
+        "Definition": (
+            "The edit rate of the best-performing model for this collection. A high value here "
+            "indicates the collection was difficult for all models, not just one."
+        ),
+    },
+    # ── Evaluator Notes ───────────────────────────────────────────────────────
+    {
+        "Tab": "Evaluator Notes",
+        "Metric": "(no metrics)",
+        "Direction": "—",
+        "Definition": (
+            "This tab contains the raw text of all archivist notes, organized by "
+            "Collection × Model with one column per evaluator. No calculated metrics — "
+            "qualitative feedback only."
+        ),
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Discovery and parsing
+# ---------------------------------------------------------------------------
+
+def _find_evaluations_dir(output_folders_root: str) -> str | None:
+    """Search output_folders for any directory containing an evaluations/ subfolder."""
+    if not os.path.isdir(output_folders_root):
+        return None
+    entries = sorted(os.scandir(output_folders_root), key=lambda e: e.name, reverse=True)
+    for entry in entries:
+        if entry.is_dir():
+            candidate = os.path.join(entry.path, "evaluations")
+            if os.path.isdir(candidate):
+                return candidate
+    return None
+
+
+def _extract_collection(image_folder: str, model: str) -> str:
+    """
+    Extract collection name from image_folder string.
+    e.g. "ArchImagesAI_alfred-zucker_gpt-5.1_2026-03-06_Time_17-34-27", model="gpt-5.1"
+         → "alfred-zucker"
+    """
+    prefix = "ArchImagesAI_"
+    if image_folder.startswith(prefix):
+        remainder = image_folder[len(prefix):]
+        remainder = re.sub(r"_\d{4}-\d{2}-\d{2}_Time_[\d-]+$", "", remainder)
+        if model and remainder.endswith("_" + model):
+            return remainder[: -(len(model) + 1)]
+        return remainder
+    return image_folder
+
+
+def parse_report_file(filepath: str) -> dict | None:
+    """Parse one edit_report JSON into a flat ParsedReport dict. Returns None on failure."""
+    try:
+        with open(filepath, encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as e:
+        print(f"  Warning: could not read {os.path.basename(filepath)}: {e}")
+        return None
+
+    bi    = raw.get("batch_info", {})
+    ev    = bi.get("evaluator") or bi.get("archivist", "Unknown")
+    models_used = bi.get("models_used", [])
+    model = models_used[0] if models_used else "unknown"
+    collection = _extract_collection(bi.get("image_folder", ""), model)
+
+    scores = raw.get("average_quality_scores", {})
+    tfs    = raw.get("text_fields_summary", {})
+    subj   = raw.get("subjects", {})
+    hdgs   = raw.get("subject_headings", {})
+    adds   = hdgs.get("archivist_additions", {})
+
+    def _score(key: str) -> float:
+        return scores.get(key, {}).get("value", 0.0)
+
+    # Per-field data
+    text_fields: dict[str, dict] = {}
+    for fname, fd in tfs.get("text_fields", {}).items():
+        text_fields[fname] = {
+            "records_edited":   fd.get("records_edited", 0),
+            "records_reviewed": fd.get("records_reviewed", 0),
+            "pct_changed":      fd.get("pct_changed", 0.0),
+            "avg_similarity":   fd.get("avg_edited_field_similarity_ratio", 0.0),
+            "avg_token_sort":   fd.get("avg_edited_field_token_sort_ratio", 0.0),
+        }
+
+    list_fields: dict[str, dict] = {}
+    for fname, fd in tfs.get("list_fields", {}).items():
+        list_fields[fname] = {
+            "records_edited":   fd.get("records_edited", 0),
+            "records_reviewed": fd.get("records_reviewed", 0),
+            "retention_rate":   fd.get("retention_rate", 100.0),
+            "original_count":   fd.get("original_count", 0),
+            "items_removed":    fd.get("items_removed", 0),
+            "items_added":      fd.get("items_added", 0),
+        }
+
+    # Per-record stats: vocab additions, notes, unchanged reviews
+    records_reviewed_count = bi.get("records_reviewed", 0)
+    records_with_vocab_adds = 0
+    records_with_notes = 0
+    for rec in raw.get("records", []):
+        if rec.get("archivist_notes", "").strip():
+            records_with_notes += 1
+        # A vocab addition = approved term with "other-" prefix (archivist added from vocabulary list)
+        has_vocab_add = any(
+            e.get("edit_type") == "term_decision"
+            and str(e.get("term_id", "")).startswith("other-")
+            and "approved" in str(e.get("new_value", "")).lower()
+            for e in rec.get("edits", [])
+        )
+        if has_vocab_add:
+            records_with_vocab_adds += 1
+
+    def _rate(n: int) -> float:
+        return round(n / records_reviewed_count * 100, 1) if records_reviewed_count > 0 else 0.0
+
+    records_unchanged_rate  = _rate(bi.get("records_reviewed_only", 0))
+    archivist_addition_rate = _rate(records_with_vocab_adds)
+    notes_written_rate      = _rate(records_with_notes)
+    avg_custom_terms = (
+        round(adds.get("custom_terms", 0) / records_reviewed_count, 2)
+        if records_reviewed_count > 0 else 0.0
+    )
+    avg_custom_subjects = (
+        round(subj.get("custom_added", 0) / records_reviewed_count, 2)
+        if records_reviewed_count > 0 else 0.0
+    )
+
+    return {
+        "filepath":                   filepath,
+        "evaluator":                  ev,
+        "collection":                 collection,
+        "model":                      model,
+        "records_reviewed":           records_reviewed_count,
+        "edit_rate":                  _score("edit_rate"),
+        "text_pct_changed":           _score("text_pct_changed"),
+        "list_item_retention_rate":   _score("list_item_retention_rate"),
+        "subject_acceptance_rate":    _score("subject_acceptance_rate"),
+        "ai_heading_approval_rate":   _score("ai_heading_approval_rate"),
+        "format_media_approval_rate": _score("format_media_approval_rate"),
+        "archivist_addition_rate":    archivist_addition_rate,
+        "avg_custom_terms":           avg_custom_terms,
+        "avg_custom_subjects":        avg_custom_subjects,
+        "notes_written_rate":         notes_written_rate,
+        "records_unchanged_rate":     records_unchanged_rate,
+        "text_fields":                text_fields,
+        "list_fields":                list_fields,
+        "records":                    raw.get("records", []),
+    }
+
+
+def discover_all_reports(evaluations_dir: str) -> list[dict]:
+    """Walk evaluations_dir/{EV}/{EV}_changes/edit_report_*.json and parse all."""
+    reports = []
+    if not os.path.isdir(evaluations_dir):
+        print(f"Error: evaluations directory not found: {evaluations_dir}")
+        return reports
+
+    for entry in sorted(os.scandir(evaluations_dir), key=lambda e: e.name):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        for sub in sorted(os.scandir(entry.path), key=lambda e: e.name):
+            if not sub.is_dir() or not sub.name.endswith("_changes"):
+                continue
+            for fname in sorted(os.listdir(sub.path)):
+                if not fname.startswith("edit_report_") or not fname.endswith(".json"):
+                    continue
+                report = parse_report_file(os.path.join(sub.path, fname))
+                if report:
+                    reports.append(report)
+
+    return reports
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _avg(items: list, key: str) -> float | None:
+    vals = [r[key] for r in items if r.get(key) is not None]
+    return round(statistics.mean(vals), 1) if vals else None
+
+# ---------------------------------------------------------------------------
+# Computation functions
+# ---------------------------------------------------------------------------
+
+def compute_model_overview(reports: list[dict]) -> pd.DataFrame:
+    """Tab 1: One row per model, sorted by edit rate ascending (best first)."""
+    by_model: dict[str, list] = defaultdict(list)
+    for r in reports:
+        by_model[r["model"]].append(r)
+
+    rows = []
+    for model, reps in sorted(by_model.items()):
+        rows.append({
+            "Model":                       model,
+            "Edit Rate (%)":               _avg(reps, "edit_rate"),
+            "Text % Changed":              _avg(reps, "text_pct_changed"),
+            "List Item Retention (%)":     _avg(reps, "list_item_retention_rate"),
+            "Subject Acceptance (%)":      _avg(reps, "subject_acceptance_rate"),
+            "Heading Approval (%)":        _avg(reps, "ai_heading_approval_rate"),
+            "Archivist Addition Rate (%)": _avg(reps, "archivist_addition_rate"),
+            "Avg Custom Terms Added":      _avg(reps, "avg_custom_terms"),
+            "Avg Custom Subjects Added":   _avg(reps, "avg_custom_subjects"),
+            "Collections":                 len({r["collection"] for r in reps}),
+            "Evaluators":                  len({r["evaluator"] for r in reps}),
+        })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("Edit Rate (%)", ascending=True, na_position="last").reset_index(drop=True)
+    return df
+
+
+def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
+    """
+    Tab 2: One row per field. Per-model edit rates + aggregate quality columns.
+    Text fields: Avg % Changed, Avg Similarity When Edited, Avg Token Sort Ratio.
+    List fields: Avg Retention Rate, Avg Items Removed Rate, Avg Items Added Rate.
+    'subjects' row shows rejection rate (100 - acceptance_rate) for consistency.
+    Sorted by avg edit rate descending (most-edited fields first).
+    """
+    models = sorted({r["model"] for r in reports})
+
+    rows = []
+
+    for fname in TEXT_FIELDS:
+        row: dict = {"Field": fname, "Field Type": "text"}
+        model_avgs = []
+        for model in models:
+            mreps = [r for r in reports if r["model"] == model]
+            rates = [
+                fd["records_edited"] / fd["records_reviewed"] * 100
+                for r in mreps
+                for fd in [r["text_fields"].get(fname, {})]
+                if fd.get("records_reviewed", 0) > 0
+            ]
+            if rates:
+                avg = statistics.mean(rates)
+                row[model] = round(avg, 1)
+                model_avgs.append(avg)
+            else:
+                row[model] = None
+
+        # Aggregate text quality metrics across all reports
+        all_pct = [
+            fd["pct_changed"]
+            for r in reports
+            for fd in [r["text_fields"].get(fname, {})]
+            if fd.get("records_reviewed", 0) > 0
+        ]
+        all_sim = [
+            fd["avg_similarity"]
+            for r in reports
+            for fd in [r["text_fields"].get(fname, {})]
+            if fd.get("records_edited", 0) > 0 and fd.get("avg_similarity", 0) > 0
+        ]
+        all_tsort = [
+            fd["avg_token_sort"]
+            for r in reports
+            for fd in [r["text_fields"].get(fname, {})]
+            if fd.get("records_edited", 0) > 0 and fd.get("avg_token_sort", 0) > 0
+        ]
+
+        row["Avg Edit Rate (%)"]         = round(statistics.mean(model_avgs), 1) if model_avgs else None
+        row["Avg % Changed"]             = round(statistics.mean(all_pct), 1) if all_pct else None
+        row["Avg Sim When Edited (%)"]   = round(statistics.mean(all_sim), 1) if all_sim else None
+        row["Avg Token Sort Ratio"]      = round(statistics.mean(all_tsort), 1) if all_tsort else None
+        row["Avg Retention Rate (%)"]    = None
+        row["Avg Items Removed Rate (%)"]= None
+        row["Avg Items Added Rate (%)"]  = None
+        rows.append(row)
+
+    for fname in LIST_FIELDS:
+        row = {"Field": fname, "Field Type": "list"}
+        model_avgs = []
+        retention_avgs = []
+        for model in models:
+            mreps = [r for r in reports if r["model"] == model]
+            rates = []
+            retentions = []
+            for rep in mreps:
+                fd = rep["list_fields"].get(fname, {})
+                if fd.get("records_reviewed", 0) > 0:
+                    rates.append(fd["records_edited"] / fd["records_reviewed"] * 100)
+                    retentions.append(fd.get("retention_rate", 100.0))
+            if rates:
+                row[model] = round(statistics.mean(rates), 1)
+                model_avgs.append(statistics.mean(rates))
+                retention_avgs.append(statistics.mean(retentions))
+            else:
+                row[model] = None
+
+        # Aggregate list directional metrics across all reports
+        removed_rates = [
+            fd["items_removed"] / fd["original_count"] * 100
+            for r in reports
+            for fd in [r["list_fields"].get(fname, {})]
+            if fd.get("original_count", 0) > 0
+        ]
+        added_rates = [
+            fd["items_added"] / fd["original_count"] * 100
+            for r in reports
+            for fd in [r["list_fields"].get(fname, {})]
+            if fd.get("original_count", 0) > 0
+        ]
+
+        row["Avg Edit Rate (%)"]          = round(statistics.mean(model_avgs), 1) if model_avgs else None
+        row["Avg % Changed"]              = None
+        row["Avg Sim When Edited (%)"]    = None
+        row["Avg Token Sort Ratio"]       = None
+        row["Avg Retention Rate (%)"]     = round(statistics.mean(retention_avgs), 1) if retention_avgs else None
+        row["Avg Items Removed Rate (%)"] = round(statistics.mean(removed_rates), 1) if removed_rates else None
+        row["Avg Items Added Rate (%)"]   = round(statistics.mean(added_rates), 1) if added_rates else None
+        rows.append(row)
+
+    # Subjects: rejection rate = 100 - acceptance_rate (lower = better, consistent with other fields)
+    subj_row: dict = {"Field": "subjects", "Field Type": "list — rejection rate"}
+    model_avgs = []
+    for model in models:
+        mreps = [r for r in reports if r["model"] == model]
+        rates = [
+            100 - r["subject_acceptance_rate"]
+            for r in mreps
+            if r.get("subject_acceptance_rate") is not None
+        ]
+        if rates:
+            avg = statistics.mean(rates)
+            subj_row[model] = round(avg, 1)
+            model_avgs.append(avg)
+        else:
+            subj_row[model] = None
+    subj_row["Avg Edit Rate (%)"]          = round(statistics.mean(model_avgs), 1) if model_avgs else None
+    subj_row["Avg % Changed"]              = None
+    subj_row["Avg Sim When Edited (%)"]    = None
+    subj_row["Avg Token Sort Ratio"]       = None
+    subj_row["Avg Retention Rate (%)"]     = None
+    subj_row["Avg Items Removed Rate (%)"] = None
+    subj_row["Avg Items Added Rate (%)"]   = None
+    rows.append(subj_row)
+
+    df = pd.DataFrame(rows)
+    model_cols = [m for m in models if m in df.columns]
+    col_order = (
+        ["Field", "Field Type"] + model_cols +
+        ["Avg Edit Rate (%)", "Avg % Changed", "Avg Sim When Edited (%)",
+         "Avg Token Sort Ratio", "Avg Retention Rate (%)",
+         "Avg Items Removed Rate (%)", "Avg Items Added Rate (%)"]
+    )
+    df = df[[c for c in col_order if c in df.columns]]
+
+    if not df.empty:
+        df = df.sort_values("Avg Edit Rate (%)", ascending=False, na_position="last").reset_index(drop=True)
+    return df
+
+
+def compute_evaluator_behavior(reports: list[dict]) -> pd.DataFrame:
+    """Tab 3: One row per evaluator."""
+    by_ev: dict[str, list] = defaultdict(list)
+    for r in reports:
+        by_ev[r["evaluator"]].append(r)
+
+    rows = []
+    for ev, reps in sorted(by_ev.items()):
+        rows.append({
+            "Evaluator":                   ev,
+            "Records Reviewed":            sum(r["records_reviewed"] for r in reps),
+            "Edit Rate (%)":               _avg(reps, "edit_rate"),
+            "Records Unchanged (%)":       _avg(reps, "records_unchanged_rate"),
+            "Text % Changed":              _avg(reps, "text_pct_changed"),
+            "Subject Acceptance (%)":      _avg(reps, "subject_acceptance_rate"),
+            "Heading Approval (%)":        _avg(reps, "ai_heading_approval_rate"),
+            "Archivist Addition Rate (%)": _avg(reps, "archivist_addition_rate"),
+            "Avg Custom Terms Added":      _avg(reps, "avg_custom_terms"),
+            "Avg Custom Subjects Added":   _avg(reps, "avg_custom_subjects"),
+            "Notes Written (%)":           _avg(reps, "notes_written_rate"),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def compute_collection_difficulty(reports: list[dict]) -> pd.DataFrame:
+    """Tab 4: One row per collection, sorted by avg edit rate descending (hardest first)."""
+    collections = sorted({r["collection"] for r in reports})
+
+    rows = []
+    for coll in collections:
+        creps = [r for r in reports if r["collection"] == coll]
+
+        model_edit_rates: dict[str, float] = {}
+        for model in {r["model"] for r in creps}:
+            mreps = [r for r in creps if r["model"] == model]
+            rates = [r["edit_rate"] for r in mreps if r.get("edit_rate") is not None]
+            if rates:
+                model_edit_rates[model] = statistics.mean(rates)
+
+        best_model = min(model_edit_rates, key=model_edit_rates.get) if model_edit_rates else None
+
+        rows.append({
+            "Collection":                coll,
+            "Records Reviewed":          sum(r["records_reviewed"] for r in creps),
+            "Avg Edit Rate (%)":         _avg(creps, "edit_rate"),
+            "Avg Text % Changed":        _avg(creps, "text_pct_changed"),
+            "Subject Acceptance (%)":    _avg(creps, "subject_acceptance_rate"),
+            "Heading Approval (%)":      _avg(creps, "ai_heading_approval_rate"),
+            "Best Model":                best_model,
+            "Best Model Edit Rate (%)":  round(model_edit_rates[best_model], 1) if best_model else None,
+        })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("Avg Edit Rate (%)", ascending=False, na_position="last").reset_index(drop=True)
+    return df
+
+
+def compile_evaluator_notes(reports: list[dict]) -> pd.DataFrame:
+    """
+    Tab 5: One row per (Collection, Model). One column per evaluator containing
+    all their notes for that instance, formatted as 'DrawingID: note' per line.
+    """
+    evaluators = sorted({r["evaluator"] for r in reports})
+    combos     = sorted({(r["collection"], r["model"]) for r in reports})
+
+    # Build: (collection, model, evaluator) → ["DrawingID: note", ...]
+    note_map: dict[tuple, list[str]] = defaultdict(list)
+    for rep in reports:
+        key = (rep["collection"], rep["model"], rep["evaluator"])
+        for rec in rep["records"]:
+            note = rec.get("archivist_notes", "").strip()
+            if note:
+                drawing_id = rec.get("id", "")
+                note_map[key].append(f"{drawing_id}: {note}" if drawing_id else note)
+
+    rows = []
+    for coll, model in combos:
+        row: dict = {"Collection": coll, "Model": model}
+        has_any = False
+        for ev in evaluators:
+            notes = note_map.get((coll, model, ev), [])
+            row[ev] = "\n".join(notes) if notes else None
+            if notes:
+                has_any = True
+        if has_any:
+            rows.append(row)
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["Collection", "Model"] + evaluators)
+
+# ---------------------------------------------------------------------------
+# Excel writer
+# ---------------------------------------------------------------------------
+
+class ExcelWriter:
+    def __init__(self, output_path: str):
+        self.wb = Workbook()
+        self.output_path = output_path
+        if self.wb.active:
+            self.wb.remove(self.wb.active)
+
+    def _write_title(self, ws, title: str, n_cols: int) -> None:
+        cell = ws.cell(row=1, column=1, value=title)
+        cell.font = TITLE_FONT
+        if n_cols > 1:
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+
+    def _write_df(self, ws, df: pd.DataFrame, header_row: int = 2, freeze_col: int = 1) -> None:
+        cols = list(df.columns)
+        for col_idx, col_name in enumerate(cols, 1):
+            cell = ws.cell(row=header_row, column=col_idx, value=col_name)
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = CENTER
+        for row_idx, row_data in enumerate(df.itertuples(index=False), header_row + 1):
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(
+                    row=row_idx, column=col_idx,
+                    value=None if pd.isna(value) else value,
+                )
+                cell.alignment = TOP_WRAP
+        ws.freeze_panes = ws.cell(row=header_row + 1, column=freeze_col)
+
+    def _auto_width(self, ws, min_w: int = 10, max_w: int = 40) -> None:
+        for col in ws.columns:
+            best = min_w
+            for cell in col:
+                if cell.value:
+                    best = min(max(best, len(str(cell.value)) + 2), max_w)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = best
+
+    def write_model_overview(self, df: pd.DataFrame) -> None:
+        ws = self.wb.create_sheet("Model Overview")
+        self._write_title(
+            ws,
+            "Model Overview — Averaged Across All Evaluators and Collections  |  "
+            "Edit Rate: lower = better  |  Acceptance/Approval: higher = better  |  "
+            "Addition Rate: % records where archivist added a controlled vocab term the model missed",
+            len(df.columns),
+        )
+        self._write_df(ws, df)
+        self._auto_width(ws, min_w=12, max_w=40)
+
+    def write_task_breakdown(self, df: pd.DataFrame) -> None:
+        ws = self.wb.create_sheet("Task Breakdown")
+        self._write_title(
+            ws,
+            "Task Breakdown — Edit Rate (%) by Field and Model  |  Lower = better  |  "
+            "'subjects' row shows rejection rate for consistency",
+            len(df.columns),
+        )
+        self._write_df(ws, df, freeze_col=3)
+        self._auto_width(ws, min_w=12, max_w=35)
+
+    def write_evaluator_behavior(self, df: pd.DataFrame) -> None:
+        ws = self.wb.create_sheet("Evaluator Behavior")
+        self._write_title(
+            ws,
+            "Evaluator Behavior — Edit Rate reflects strictness  |  "
+            "Addition Rate: % records where evaluator added a vocab term the model missed",
+            len(df.columns),
+        )
+        self._write_df(ws, df)
+        self._auto_width(ws, min_w=12, max_w=35)
+
+    def write_collection_difficulty(self, df: pd.DataFrame) -> None:
+        ws = self.wb.create_sheet("Collection Difficulty")
+        self._write_title(
+            ws,
+            "Collection Difficulty — Sorted by Average Edit Rate, hardest first",
+            len(df.columns),
+        )
+        self._write_df(ws, df)
+        self._auto_width(ws, min_w=12, max_w=35)
+
+    def write_evaluator_notes(self, df: pd.DataFrame) -> None:
+        ws = self.wb.create_sheet("Evaluator Notes")
+        n_cols = len(df.columns) if not df.empty else 2
+        self._write_title(ws, "Evaluator Notes — One row per Collection × Model; one column per evaluator", n_cols)
+        if not df.empty:
+            self._write_df(ws, df, freeze_col=3)
+            self._auto_width(ws, min_w=12, max_w=25)
+            # Widen evaluator note columns (everything after Collection and Model)
+            for col_idx in range(3, len(df.columns) + 1):
+                ws.column_dimensions[get_column_letter(col_idx)].width = 55
+        else:
+            ws.cell(row=2, column=1, value="No notes found.")
+
+    def write_glossary(self) -> None:
+        ws = self.wb.create_sheet("Metric Glossary")
+        self._write_title(
+            ws,
+            "Metric Glossary — Plain-language definitions for every metric, in tab order",
+            4,
+        )
+        headers = ["Tab", "Metric", "Direction", "Definition"]
+        for col_idx, h in enumerate(headers, 1):
+            cell = ws.cell(row=2, column=col_idx, value=h)
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = CENTER
+
+        tab_order: list[str] = []
+        for row_data in GLOSSARY:
+            if row_data["Tab"] not in tab_order:
+                tab_order.append(row_data["Tab"])
+
+        for row_idx, row_data in enumerate(GLOSSARY, 3):
+            fill = _GLOSS_FILLS[tab_order.index(row_data["Tab"]) % 2]
+            for col_idx, key in enumerate(["Tab", "Metric", "Direction", "Definition"], 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=row_data[key])
+                cell.alignment = TOP_WRAP
+                cell.fill = fill
+
+        ws.freeze_panes = ws.cell(row=3, column=1)
+        ws.column_dimensions["A"].width = 22
+        ws.column_dimensions["B"].width = 28
+        ws.column_dimensions["C"].width = 20
+        ws.column_dimensions["D"].width = 72
+
+    def save(self) -> None:
+        self.wb.save(self.output_path)
+        print(f"Saved: {self.output_path}")
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def build_argparser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Compile and analyze evaluator edit reports across collections and models.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    p.add_argument(
+        "--evaluations-dir",
+        default=None,
+        help="Path to the evaluations/ directory. Auto-detected if not specified.",
+    )
+    p.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory to write the output Excel file. Defaults to evaluations-dir.",
+    )
+    return p
+
+
+def main() -> int:
+    args = build_argparser().parse_args()
+
+    evaluations_dir = args.evaluations_dir
+    if not evaluations_dir:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        output_folders = os.path.join(script_dir, "output_folders")
+        evaluations_dir = _find_evaluations_dir(output_folders)
+        if not evaluations_dir:
+            print("Error: Could not auto-detect evaluations/ directory.")
+            print("Use --evaluations-dir to specify its location.")
+            return 1
+
+    print("Edit Report Analysis")
+    print("=" * 60)
+    print(f"Evaluations directory: {evaluations_dir}")
+
+    reports = discover_all_reports(evaluations_dir)
+    if not reports:
+        print("No edit_report_*.json files found. Check the directory structure.")
+        return 1
+
+    evaluators  = sorted({r["evaluator"]  for r in reports})
+    collections = sorted({r["collection"] for r in reports})
+    models      = sorted({r["model"]      for r in reports})
+
+    print(
+        f"Loaded {len(reports)} report(s) from "
+        f"{len(evaluators)} evaluator(s), "
+        f"{len(collections)} collection(s), "
+        f"{len(models)} model(s)."
+    )
+    print(f"  Evaluators:  {', '.join(evaluators)}")
+    print(f"  Collections: {', '.join(collections)}")
+    print(f"  Models:      {', '.join(models)}")
+    print()
+
+    print("Computing analyses...")
+    df_model_overview      = compute_model_overview(reports)
+    df_task_breakdown      = compute_task_breakdown(reports)
+    df_evaluator_behavior  = compute_evaluator_behavior(reports)
+    df_collection_diff     = compute_collection_difficulty(reports)
+    df_notes               = compile_evaluator_notes(reports)
+
+    output_dir = args.output_dir or evaluations_dir
+    os.makedirs(output_dir, exist_ok=True)
+    today = date.today().strftime("%Y-%m-%d")
+    output_path = os.path.join(output_dir, f"edit_report_analysis_{today}.xlsx")
+
+    print("Writing Excel workbook...")
+    writer = ExcelWriter(output_path)
+    writer.write_model_overview(df_model_overview)
+    writer.write_task_breakdown(df_task_breakdown)
+    writer.write_evaluator_behavior(df_evaluator_behavior)
+    writer.write_collection_difficulty(df_collection_diff)
+    writer.write_evaluator_notes(df_notes)
+    writer.write_glossary()
+    writer.save()
+
+    print("\nDone.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
