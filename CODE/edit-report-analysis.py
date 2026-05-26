@@ -67,13 +67,13 @@ GLOSSARY = [
     {"Tab": "Model Overview", "Metric": "Edit Rate (%)", "Direction": "Lower = better",
      "Definition": "Pooled: (total records with ≥1 edit / total records reviewed across all reports) × 100. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Text % Changed", "Direction": "Lower = better",
-     "Definition": "Pooled: total Levenshtein edit distance across all text fields and all records ÷ total original character volume. Every record counts equally."},
+     "Definition": "Pooled: total Levenshtein edit distance across all text fields and all records ÷ max(total original, total edited) character volume. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Chars Added / Record", "Direction": "Lower = better",
      "Definition": "Pooled: total characters inserted across all text fields ÷ total records reviewed. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Chars Deleted / Record", "Direction": "Lower = better",
      "Definition": "Pooled: total characters removed across all text fields ÷ total records reviewed. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Edit Effort Ratio", "Direction": "Lower = better",
-     "Definition": "Pooled: (total chars added + total chars deleted) ÷ total original character volume. Measures raw rewrite volume regardless of net change direction. Every record counts equally."},
+     "Definition": "Pooled: (total chars added + total chars deleted) ÷ max(total original, total edited) character volume. Measures raw rewrite volume regardless of net change direction. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "List Item Retention (%)", "Direction": "Higher = better",
      "Definition": "Pooled: (total AI list items kept or corrected by archivist / total AI list items across all records) × 100. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Subject Acceptance (%)", "Direction": "Higher = better",
@@ -100,7 +100,7 @@ GLOSSARY = [
     {"Tab": "Task Breakdown", "Metric": "Avg Edit Rate (%)", "Direction": "Lower = better",
      "Definition": "Pooled edit rate for this field averaged across models. Used to rank fields most-to-least edited."},
     {"Tab": "Task Breakdown", "Metric": "Avg % Changed", "Direction": "Lower = better",
-     "Definition": "Text only. Pooled: total Levenshtein edit distance ÷ total original character volume for this field across all records. Every record counts equally."},
+     "Definition": "Text only. Pooled: total Levenshtein edit distance ÷ max(total original, total edited) character volume for this field across all records. Every record counts equally."},
     {"Tab": "Task Breakdown", "Metric": "Avg Sim When Edited (%)", "Direction": "Higher = better",
      "Definition": "Text only. Avg fuzzy similarity between AI output and archivist's final text (0–100%), on edited records only. Report-averaged."},
     {"Tab": "Task Breakdown", "Metric": "Avg Token Sort Ratio", "Direction": "Higher = better",
@@ -110,7 +110,7 @@ GLOSSARY = [
     {"Tab": "Task Breakdown", "Metric": "Avg Chars Deleted / Record", "Direction": "Lower = better",
      "Definition": "Text only. Pooled: total characters removed for this field ÷ total records reviewed. Every record counts equally."},
     {"Tab": "Task Breakdown", "Metric": "Avg Edit Effort Ratio", "Direction": "Lower = better",
-     "Definition": "Text only. Pooled: (total chars added + total chars deleted) ÷ total original character volume for this field. Every record counts equally."},
+     "Definition": "Text only. Pooled: (total chars added + total chars deleted) ÷ max(total original, total edited) character volume for this field. Every record counts equally."},
     {"Tab": "Task Breakdown", "Metric": "Avg Retention Rate (%)", "Direction": "Higher = better",
      "Definition": "List only. Pooled: (total AI items kept or corrected / total original AI items across all records) × 100. Every record counts equally."},
     {"Tab": "Task Breakdown", "Metric": "Avg Items Removed Rate (%)", "Direction": "Lower = better",
@@ -127,7 +127,7 @@ GLOSSARY = [
     {"Tab": "Evaluator Behavior", "Metric": "Records Unchanged (%)", "Direction": "Higher = less strict",
      "Definition": "Pooled: (total records with no edits / total records reviewed) × 100. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Text % Changed", "Direction": "Lower = better",
-     "Definition": "Pooled: total Levenshtein edit distance ÷ total original character volume across all this evaluator's records. Distinguishes heavy rewriters from light editors."},
+     "Definition": "Pooled: total Levenshtein edit distance ÷ max(total original, total edited) character volume across all this evaluator's records. Distinguishes heavy rewriters from light editors."},
     {"Tab": "Evaluator Behavior", "Metric": "Subject Acceptance (%)", "Direction": "Higher = less strict",
      "Definition": "Pooled: (total AI subject terms approved / total AI subject terms suggested) × 100. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Heading Approval (%)", "Direction": "Higher = less strict",
@@ -146,7 +146,7 @@ GLOSSARY = [
     {"Tab": "Collection Difficulty", "Metric": "Avg Edit Rate (%)", "Direction": "Lower = better",
      "Definition": "Pooled: (total records with ≥1 edit / total records reviewed) × 100 across all models/evaluators for this collection. Every record counts equally."},
     {"Tab": "Collection Difficulty", "Metric": "Avg Text % Changed", "Direction": "Lower = better",
-     "Definition": "Pooled: total Levenshtein edit distance ÷ total original character volume across all records for this collection. Every record counts equally."},
+     "Definition": "Pooled: total Levenshtein edit distance ÷ max(total original, total edited) character volume across all records for this collection. Every record counts equally."},
     {"Tab": "Collection Difficulty", "Metric": "Chars Added / Record", "Direction": "Lower = better",
      "Definition": "Pooled: total characters inserted across all text fields ÷ total records reviewed for this collection. Every record counts equally."},
     {"Tab": "Collection Difficulty", "Metric": "Chars Deleted / Record", "Direction": "Lower = better",
@@ -235,6 +235,7 @@ def parse_report_file(filepath: str) -> dict | None:
             "chars_deleted":      fd.get("chars_deleted", 0),
             "edit_effort_ratio":  fd.get("edit_effort_ratio", 0.0),
             "original_length":    fd.get("original_length", 0),
+            "new_length":         fd.get("new_length", 0),
             "edit_distance":      fd.get("edit_distance", 0),
         }
 
@@ -258,7 +259,7 @@ def parse_report_file(filepath: str) -> dict | None:
 
     # Text totals: exact values direct from JSON
     text_edit_distance_total = tft.get("edit_distance", 0)
-    text_char_volume         = tft.get("original_length", 0)
+    text_char_volume         = max(tft.get("original_length", 0), tft.get("new_length", 0))
 
     # Subject/heading raw counts
     subjects_total    = subj.get("total", 0)
@@ -453,6 +454,8 @@ def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
         # Aggregate text quality metrics — pooled across all records
         tot_edit_dist  = sum(fd["edit_distance"]   for _, fd in _field_text_fds(reports, fname))
         tot_orig_len   = sum(fd["original_length"] for _, fd in _field_text_fds(reports, fname))
+        tot_new_len    = sum(fd["new_length"]       for _, fd in _field_text_fds(reports, fname))
+        tot_char_vol   = max(tot_orig_len, tot_new_len)
         tot_reviewed   = sum(fd["records_reviewed"] for _, fd in _field_text_fds(reports, fname))
         tot_ca         = sum(fd["chars_added"]      for _, fd in _field_text_fds(reports, fname))
         tot_cd         = sum(fd["chars_deleted"]    for _, fd in _field_text_fds(reports, fname))
@@ -470,12 +473,12 @@ def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
         ]
 
         row["Avg Edit Rate (%)"]          = round(statistics.mean(model_rates), 1) if model_rates else None
-        row["Avg % Changed"]              = round(tot_edit_dist / tot_orig_len * 100, 1) if tot_orig_len > 0 else None
+        row["Avg % Changed"]              = round(tot_edit_dist / tot_char_vol * 100, 1) if tot_char_vol > 0 else None
         row["Avg Sim When Edited (%)"]    = round(statistics.mean(all_sim), 1) if all_sim else None
         row["Avg Token Sort Ratio"]       = round(statistics.mean(all_tsort), 1) if all_tsort else None
         row["Avg Chars Added / Record"]   = round(tot_ca / tot_reviewed, 2) if tot_reviewed > 0 else None
         row["Avg Chars Deleted / Record"] = round(tot_cd / tot_reviewed, 2) if tot_reviewed > 0 else None
-        row["Avg Edit Effort Ratio"]      = round((tot_ca + tot_cd) / tot_orig_len, 4) if tot_orig_len > 0 else None
+        row["Avg Edit Effort Ratio"]      = round((tot_ca + tot_cd) / tot_char_vol, 4) if tot_char_vol > 0 else None
         row["Avg Retention Rate (%)"]     = None
         row["Avg Items Removed Rate (%)"] = None
         row["Avg Items Added Rate (%)"]   = None
@@ -726,10 +729,10 @@ class ExcelWriter:
         explanation = {
             "Model":                       "",
             "Edit Rate (%)":               "pooled: (total records with ≥1 edit / total records reviewed) × 100 — every record counts equally",
-            "Text % Changed":              "pooled: total Levenshtein edit distance ÷ total original character volume across all records",
+            "Text % Changed":              "pooled: total Levenshtein edit distance ÷ max(total original, total edited) character volume across all records",
             "Chars Added / Record":        "pooled: total chars inserted ÷ total records reviewed — every record counts equally",
             "Chars Deleted / Record":      "pooled: total chars removed ÷ total records reviewed — every record counts equally",
-            "Edit Effort Ratio":           "pooled: (total chars added + total chars deleted) ÷ total original character volume — every record counts equally",
+            "Edit Effort Ratio":           "pooled: (total chars added + total chars deleted) ÷ max(total original, total edited) character volume — every record counts equally",
             "List Item Retention (%)":     "pooled: (total items kept or corrected / total original AI items) × 100 — every record counts equally",
             "Subject Acceptance (%)":      "pooled: (total subjects approved / total subjects suggested) × 100 — every record counts equally",
             "Heading Approval (%)":        "pooled: (total headings approved / total headings suggested) × 100 — every record counts equally",
@@ -749,12 +752,12 @@ class ExcelWriter:
             "Field":                       "",
             "Field Type":                  "",
             "Avg Edit Rate (%)":           "pooled edit rate for this field averaged across models — every record counts equally",
-            "Avg % Changed":               "text only: pooled total edit distance ÷ total original character volume — every record counts equally",
+            "Avg % Changed":               "text only: pooled total edit distance ÷ max(total original, total edited) character volume — every record counts equally",
             "Avg Sim When Edited (%)":     "text only: report-averaged fuzzy similarity on edited records (0–100%)",
             "Avg Token Sort Ratio":        "text only: report-averaged word-order-insensitive similarity on edited records",
             "Avg Chars Added / Record":    "text only: pooled chars inserted ÷ total records reviewed for this field — every record counts equally",
             "Avg Chars Deleted / Record":  "text only: pooled chars removed ÷ total records reviewed for this field — every record counts equally",
-            "Avg Edit Effort Ratio":       "text only: pooled (chars added + chars deleted) ÷ total original character volume — every record counts equally",
+            "Avg Edit Effort Ratio":       "text only: pooled (chars added + chars deleted) ÷ max(total original, total edited) character volume — every record counts equally",
             "Avg Retention Rate (%)":      "list only: pooled (items kept + corrected) / total original AI items — every record counts equally",
             "Avg Items Removed Rate (%)":  "list only: pooled items removed / total original AI items — every record counts equally",
             "Avg Items Added Rate (%)":    "list only: pooled items added / total original AI items — every record counts equally",
@@ -774,7 +777,7 @@ class ExcelWriter:
             "Records Reviewed":            "total records reviewed across all collections and models",
             "Edit Rate (%)":               "pooled: (total records with ≥1 edit / total records reviewed) × 100 — every record counts equally",
             "Records Unchanged (%)":       "pooled: (total records with no edits / total records reviewed) × 100 — every record counts equally",
-            "Text % Changed":              "pooled: total edit distance ÷ total original character volume — every record counts equally",
+            "Text % Changed":              "pooled: total edit distance ÷ max(total original, total edited) character volume — every record counts equally",
             "Subject Acceptance (%)":      "pooled: (total subjects approved / total subjects suggested) × 100 — every record counts equally",
             "Heading Approval (%)":        "pooled: (total headings approved / total headings suggested) × 100 — every record counts equally",
             "Archivist Addition Rate (%)": "pooled: (records where ≥1 vocab term added / total records reviewed) × 100 — every record counts equally",
@@ -792,7 +795,7 @@ class ExcelWriter:
             "Collection":                "collection name",
             "Records Reviewed":          "total records reviewed for this collection across all models and evaluators",
             "Avg Edit Rate (%)":         "pooled: (total records with ≥1 edit / total records reviewed) × 100 — every record counts equally",
-            "Avg Text % Changed":        "pooled: total edit distance ÷ total original character volume — every record counts equally",
+            "Avg Text % Changed":        "pooled: total edit distance ÷ max(total original, total edited) character volume — every record counts equally",
             "Chars Added / Record":      "pooled: total chars inserted ÷ total records reviewed — every record counts equally",
             "Chars Deleted / Record":    "pooled: total chars removed ÷ total records reviewed — every record counts equally",
             "Subject Acceptance (%)":    "pooled: (total subjects approved / total subjects suggested) × 100 — every record counts equally",

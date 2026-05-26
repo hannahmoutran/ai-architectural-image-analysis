@@ -372,12 +372,15 @@ class ArchivistEditsIntegrator:
                 if len(parts) >= 3:
                     idx = int(parts[-1])
                     source_class = '-'.join(parts[1:-1])
+                    # Map short source class to full source name (matches _get_approved_other_terms)
+                    _source_map = {'lcsh': 'LCSH', 'fast': 'FAST', 'aat': 'Getty AAT', 'tgn': 'Getty TGN'}
+                    source_class_full = _source_map.get(source_class, source_class)
                     vocab_results = analysis.get('vocabulary_search_results', {})
                     selected_labels = {t.get('label', '').lower() for t in analysis.get('final_selected_terms', [])}
                     other_terms = []
                     for topic, candidates in vocab_results.items():
                         for t in candidates:
-                            if t.get('label', '').lower() not in selected_labels and t.get('source', '') == source_class:
+                            if t.get('label', '').lower() not in selected_labels and t.get('source', '') == source_class_full:
                                 other_terms.append(t)
                     if 0 <= idx < len(other_terms):
                         return other_terms[idx].get('label', term_id)
@@ -1704,6 +1707,67 @@ class ArchivistEditsIntegrator:
 
         return approved_terms
 
+    def _clean_workflow_lists_after_decisions(self):
+        """Remove rejected terms from the raw lists in workflow data.
+
+        Called after generate_final_metadata() (which reads decisions correctly) and
+        before save_workflow_json(), so drawings_workflow.json reflects only approved terms.
+
+        Also prunes archivist_term_decisions to remove applied rejection entries, keeping
+        only opt-in approvals (other-*, medium-other-*) so generate_final_metadata() can
+        still correctly include those terms on any future run.
+        """
+        for record in self.workflow_data:
+            analysis = record.get('analysis', {})
+            term_decisions = analysis.get('archivist_term_decisions', {})
+            if not term_decisions:
+                continue
+
+            # Filter subjects (remove rejected topics)
+            original_subjects = analysis.get('subjects', [])
+            if not isinstance(original_subjects, list):
+                original_subjects = [original_subjects] if original_subjects else []
+            filtered_subjects = []
+            for i, subject in enumerate(original_subjects):
+                decision = term_decisions.get(f"subject-{i}")
+                if decision is None or decision == 'approved':
+                    filtered_subjects.append(subject)
+            analysis['subjects'] = filtered_subjects
+
+            # Filter final_selected_terms (remove rejected/cascade_rejected headings)
+            final_terms = analysis.get('final_selected_terms', [])
+            filtered_terms = []
+            for i, term in enumerate(final_terms):
+                decision = term_decisions.get(f"selected-{i}")
+                if isinstance(decision, dict) and decision.get('status') == 'cascade_rejected':
+                    continue
+                if decision == 'rejected':
+                    continue
+                filtered_terms.append(term)
+            analysis['final_selected_terms'] = filtered_terms
+
+            # Filter final_selected_medium_terms (remove rejected medium/support headings)
+            medium_terms = analysis.get('final_selected_medium_terms', [])
+            filtered_medium = []
+            for i, term in enumerate(medium_terms):
+                decision = term_decisions.get(f"medium-selected-{i}")
+                if decision == 'rejected':
+                    continue
+                filtered_medium.append(term)
+            analysis['final_selected_medium_terms'] = filtered_medium
+
+            # Prune archivist_term_decisions: keep only opt-in approvals (other-*, medium-other-*)
+            # so generate_final_metadata() can still add those terms on future runs.
+            # Remove rejection decisions (subject-*, selected-*, medium-selected-*) since
+            # those are now encoded in the filtered lists above.
+            pruned_decisions = {
+                tid: dec for tid, dec in term_decisions.items()
+                if tid.startswith('other-') or tid.startswith('medium-other-')
+            }
+            analysis['archivist_term_decisions'] = pruned_decisions
+
+            record['analysis'] = analysis
+
     def generate_final_metadata(self):
         """Generate final_metadata.json with only approved/clean data.
 
@@ -1922,20 +1986,26 @@ class ArchivistEditsIntegrator:
             return False
         print(f"   Applied edits to {self.stats['records_with_edits']} records")
 
-        # Save updated JSON (skip in analysis-only mode)
+        # Generate final metadata (skip in analysis-only mode)
+        # Must run before save_workflow_json so it can read the full raw lists + decisions.
         if self.analysis_only:
-            print("\n6. Skipping workflow JSON save (analysis-only mode)...")
+            print("\n6. Skipping final_metadata.json (analysis-only mode)...")
         else:
-            print("\n6. Saving updated workflow JSON...")
+            print("\n6. Generating final_metadata.json...")
+            self.generate_final_metadata()
+
+        # Remove rejected terms from workflow lists now that final_metadata is written.
+        # Also prune applied rejection decisions from archivist_term_decisions.
+        if not self.analysis_only:
+            self._clean_workflow_lists_after_decisions()
+
+        # Save updated workflow JSON (skip in analysis-only mode)
+        if self.analysis_only:
+            print("\n7. Skipping workflow JSON save (analysis-only mode)...")
+        else:
+            print("\n7. Saving updated workflow JSON...")
             if not self.save_workflow_json():
                 return False
-
-        # Generate final metadata (skip in analysis-only mode)
-        if self.analysis_only:
-            print("\n7. Skipping final_metadata.json (analysis-only mode)...")
-        else:
-            print("\n7. Generating final_metadata.json...")
-            self.generate_final_metadata()
 
         # Generate combined edit report
         print("\n8. Generating report...")
