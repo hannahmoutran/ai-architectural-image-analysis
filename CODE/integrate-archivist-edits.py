@@ -396,7 +396,7 @@ class ArchivistEditsIntegrator:
         - chars_deleted: characters in original not in new_value (pure deletions)
         - edit_distance: Levenshtein distance (minimum single-char edits to transform original → new)
         - pct_changed: edit_distance / max(original_length, new_length) * 100 — how different the result is
-        - edit_effort_ratio: (chars_added + chars_deleted) / (original_length + new_length) — how much work was done
+        - edit_effort_ratio: (chars_added + chars_deleted) / max(original_length, new_length) — how much work was done
         - original_length: length of original string
         - new_length: length of new string
         - similarity_ratio: character-level similarity 0-100 (inverse of edit distance)

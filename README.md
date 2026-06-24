@@ -296,7 +296,7 @@ University of Texas at Austin Libraries
 - Karina Sanchez - Scholars Lab Librarian
 - Katie Pierce Meyer - Head of Architectural Collections
 - Josh Conrad - Digital Initiatives Archival Fellow
-- Caitlin Young - GRA, UT Libraries
+- Caitlin Young - Graduate Research Assistant
 
 ## Development
 

@@ -119,6 +119,8 @@ GLOSSARY = [
      "Definition": "List only. Pooled: (total items added by archivist / total original AI items across all records) × 100. Every record counts equally."},
     {"Tab": "Task Breakdown", "Metric": "subjects — rejection rate", "Direction": "Lower = better",
      "Definition": "Pooled: total subjects rejected ÷ total subjects suggested across all records. Reads consistently alongside other fields (lower = better)."},
+    {"Tab": "Task Breakdown", "Metric": "subject headings — rejection rate", "Direction": "Lower = better",
+     "Definition": "Pooled: (total AI LCSH/FAST headings not approved ÷ total AI headings suggested) × 100 across all records. A term can be correct while its full heading form still needs adjustment."},
     # ── Evaluator Behavior ────────────────────────────────────────────────────
     {"Tab": "Evaluator Behavior", "Metric": "Records Reviewed", "Direction": "—",
      "Definition": "Total records reviewed by this evaluator across all collections and models."},
@@ -258,8 +260,9 @@ def parse_report_file(filepath: str) -> dict | None:
     records_unchanged_count = bi.get("records_reviewed_only", 0)
 
     # Text totals: exact values direct from JSON
-    text_edit_distance_total = tft.get("edit_distance", 0)
-    text_char_volume         = max(tft.get("original_length", 0), tft.get("new_length", 0))
+    text_edit_distance_total   = tft.get("edit_distance", 0)
+    text_original_length_total = tft.get("original_length", 0)
+    text_new_length_total      = tft.get("new_length", 0)
 
     # Subject/heading raw counts
     subjects_total    = subj.get("total", 0)
@@ -304,9 +307,10 @@ def parse_report_file(filepath: str) -> dict | None:
         "records_unchanged_count":    records_unchanged_count,
         "records_with_vocab_adds_count": records_with_vocab_adds,
         "records_with_notes_count":   records_with_notes,
-        "text_edit_distance_total":   text_edit_distance_total,
-        "text_char_volume":           text_char_volume,
-        "text_chars_added_total":     tft.get("chars_added", 0),
+        "text_edit_distance_total":    text_edit_distance_total,
+        "text_original_length_total":  text_original_length_total,
+        "text_new_length_total":       text_new_length_total,
+        "text_chars_added_total":      tft.get("chars_added", 0),
         "text_chars_deleted_total":   tft.get("chars_deleted", 0),
         "subjects_total":             subjects_total,
         "subjects_accepted":          subjects_accepted,
@@ -380,18 +384,20 @@ def compute_model_overview(reports: list[dict]) -> pd.DataFrame:
 
     rows = []
     for model, reps in sorted(by_model.items()):
-        _total_records  = sum(r["records_reviewed"]         for r in reps)
-        _total_added    = sum(r["text_chars_added_total"]   for r in reps)
-        _total_deleted  = sum(r["text_chars_deleted_total"] for r in reps)
-        _total_effort   = _total_added + _total_deleted
-        _total_vol      = sum(r["text_char_volume"]         for r in reps)
-        _custom_terms   = sum(r["custom_terms_total"]       for r in reps)
-        _custom_subj    = sum(r["custom_subjects_total"]    for r in reps)
+        _total_records   = sum(r["records_reviewed"]            for r in reps)
+        _total_added     = sum(r["text_chars_added_total"]      for r in reps)
+        _total_deleted   = sum(r["text_chars_deleted_total"]    for r in reps)
+        _total_effort    = _total_added + _total_deleted
+        _total_edit_dist = sum(r["text_edit_distance_total"]    for r in reps)
+        _total_orig_vol  = sum(r["text_original_length_total"]  for r in reps)
+        _total_new_vol   = sum(r["text_new_length_total"]       for r in reps)
+        _total_vol       = max(_total_orig_vol, _total_new_vol)
+        _custom_terms    = sum(r["custom_terms_total"]          for r in reps)
+        _custom_subj     = sum(r["custom_subjects_total"]       for r in reps)
         rows.append({
             "Model":                       model,
             "Edit Rate (%)":               _pool_rate(reps, "records_edited_count",       "records_reviewed"),
-            "Text % Changed":              round(_pool_ratio(reps, "text_edit_distance_total", "text_char_volume") * 100, 1)
-                                           if _total_vol > 0 else None,
+            "Text % Changed":              round(_total_edit_dist / _total_vol * 100, 1) if _total_vol > 0 else None,
             "Chars Added / Record":        round(_total_added   / _total_records, 2) if _total_records > 0 else None,
             "Chars Deleted / Record":      round(_total_deleted / _total_records, 2) if _total_records > 0 else None,
             "Edit Effort Ratio":           round(_total_effort / _total_vol, 4) if _total_vol > 0 else None,
@@ -529,9 +535,7 @@ def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
             model_rates.append(rate)
         else:
             subj_row[model] = None
-    _all_rej = sum(r["subjects_rejected"] for r in reports)
-    _all_tot = sum(r["subjects_total"]    for r in reports)
-    subj_row["Avg Edit Rate (%)"]          = round(_all_rej / _all_tot * 100, 1) if _all_tot > 0 else None
+    subj_row["Avg Edit Rate (%)"]          = round(statistics.mean(model_rates), 1) if model_rates else None
     subj_row["Avg % Changed"]              = None
     subj_row["Avg Sim When Edited (%)"]    = None
     subj_row["Avg Token Sort Ratio"]       = None
@@ -542,6 +546,31 @@ def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
     subj_row["Avg Items Removed Rate (%)"] = None
     subj_row["Avg Items Added Rate (%)"]   = None
     rows.append(subj_row)
+
+    # Subject headings: rejection rate = (total - approved) / total (lower = better)
+    hdg_row: dict = {"Field": "subject headings", "Field Type": "list — rejection rate"}
+    model_rates = []
+    for model in models:
+        mreps   = [r for r in reports if r["model"] == model]
+        tot_app = sum(r["headings_approved"] for r in mreps)
+        tot_tot = sum(r["headings_total"]    for r in mreps)
+        if tot_tot > 0:
+            rate = round((tot_tot - tot_app) / tot_tot * 100, 1)
+            hdg_row[model] = rate
+            model_rates.append(rate)
+        else:
+            hdg_row[model] = None
+    hdg_row["Avg Edit Rate (%)"]          = round(statistics.mean(model_rates), 1) if model_rates else None
+    hdg_row["Avg % Changed"]              = None
+    hdg_row["Avg Sim When Edited (%)"]    = None
+    hdg_row["Avg Token Sort Ratio"]       = None
+    hdg_row["Avg Chars Added / Record"]   = None
+    hdg_row["Avg Chars Deleted / Record"] = None
+    hdg_row["Avg Edit Effort Ratio"]      = None
+    hdg_row["Avg Retention Rate (%)"]     = None
+    hdg_row["Avg Items Removed Rate (%)"] = None
+    hdg_row["Avg Items Added Rate (%)"]   = None
+    rows.append(hdg_row)
 
     df = pd.DataFrame(rows)
     model_cols = [m for m in models if m in df.columns]
@@ -567,11 +596,13 @@ def compute_evaluator_behavior(reports: list[dict]) -> pd.DataFrame:
 
     rows = []
     for ev, reps in sorted(by_ev.items()):
-        _total_records = sum(r["records_reviewed"]       for r in reps)
-        _custom_terms  = sum(r["custom_terms_total"]     for r in reps)
-        _custom_subj   = sum(r["custom_subjects_total"]  for r in reps)
-        _total_vol     = sum(r["text_char_volume"]        for r in reps)
-        _total_dist    = sum(r["text_edit_distance_total"] for r in reps)
+        _total_records  = sum(r["records_reviewed"]           for r in reps)
+        _custom_terms   = sum(r["custom_terms_total"]         for r in reps)
+        _custom_subj    = sum(r["custom_subjects_total"]      for r in reps)
+        _total_dist     = sum(r["text_edit_distance_total"]   for r in reps)
+        _total_orig_vol = sum(r["text_original_length_total"] for r in reps)
+        _total_new_vol  = sum(r["text_new_length_total"]      for r in reps)
+        _total_vol      = max(_total_orig_vol, _total_new_vol)
         rows.append({
             "Evaluator":                   ev,
             "Records Reviewed":            _total_records,
@@ -608,11 +639,13 @@ def compute_collection_difficulty(reports: list[dict]) -> pd.DataFrame:
 
         best_model = min(model_edit_rates, key=model_edit_rates.get) if model_edit_rates else None
 
-        _total_records = sum(r["records_reviewed"]           for r in creps)
-        _total_added   = sum(r["text_chars_added_total"]     for r in creps)
-        _total_deleted = sum(r["text_chars_deleted_total"]   for r in creps)
-        _total_dist    = sum(r["text_edit_distance_total"]   for r in creps)
-        _total_vol     = sum(r["text_char_volume"]           for r in creps)
+        _total_records  = sum(r["records_reviewed"]            for r in creps)
+        _total_added    = sum(r["text_chars_added_total"]      for r in creps)
+        _total_deleted  = sum(r["text_chars_deleted_total"]    for r in creps)
+        _total_dist     = sum(r["text_edit_distance_total"]    for r in creps)
+        _total_orig_vol = sum(r["text_original_length_total"]  for r in creps)
+        _total_new_vol  = sum(r["text_new_length_total"]       for r in creps)
+        _total_vol      = max(_total_orig_vol, _total_new_vol)
 
         rows.append({
             "Collection":                coll,
