@@ -10,7 +10,7 @@ Please note that output folder name will be based on the model used in step 1
 # =============================================================================
 # Option 1: Process a SINGLE folder
 # Set IMAGE_FOLDER to process just one collection
-IMAGE_FOLDER = "james-riely-gordon"
+IMAGE_FOLDER = "ut-buildings"
 
 # Option 2: Process MULTIPLE folders
 # Set IMAGE_FOLDERS to a list of folder names to process them all sequentially
@@ -219,6 +219,49 @@ def print_current_config():
     print(f"  Provider: {step3['provider']}")
     print(f"  Model: {step3['model']}")
     print("=" * 60 + "\n")
+
+
+# =============================================================================
+# CURATED MEDIUM & SUPPORT TERMS (Getty AAT)
+# =============================================================================
+# These are displayed as a checklist in the HTML review interface.
+# Archivists select whichever terms apply to each drawing.
+# URIs verified against Getty AAT — edit labels/URIs here to customize.
+# Run lookup-getty-aat.py to find URIs for additional terms.
+
+MEDIUM_TERMS = [
+    # Drawing / inscribing materials
+    {'label': 'graphite (mineral)',        'uri': 'http://vocab.getty.edu/aat/300011098', 'source': 'Getty AAT'},
+    {'label': 'graphite pencils',          'uri': 'http://vocab.getty.edu/aat/300022443', 'source': 'Getty AAT'},
+    {'label': 'ink',                       'uri': 'http://vocab.getty.edu/aat/300015012', 'source': 'Getty AAT'},
+    {'label': 'India ink (ink)',           'uri': 'http://vocab.getty.edu/aat/300015018', 'source': 'Getty AAT'},
+    {'label': 'pen and ink drawings',      'uri': 'http://vocab.getty.edu/aat/300404676', 'source': 'Getty AAT'},
+    {'label': 'pencil (marking material)', 'uri': 'http://vocab.getty.edu/aat/300410335', 'source': 'Getty AAT'},
+    {'label': 'colored pencils',           'uri': 'http://vocab.getty.edu/aat/300022441', 'source': 'Getty AAT'},
+    {'label': 'charcoal (material)',       'uri': 'http://vocab.getty.edu/aat/300012862', 'source': 'Getty AAT'},
+    {'label': 'crayon',                    'uri': '',                                      'source': 'Getty AAT'},  # verify URI
+    {'label': 'watercolor (paint)',        'uri': 'http://vocab.getty.edu/aat/300015045', 'source': 'Getty AAT'},
+    {'label': 'gouache (paint)',           'uri': 'http://vocab.getty.edu/aat/300070114', 'source': 'Getty AAT'},
+    {'label': 'wash (material)',           'uri': 'http://vocab.getty.edu/aat/300011051', 'source': 'Getty AAT'},
+    {'label': 'tempera',                   'uri': 'http://vocab.getty.edu/aat/300015062', 'source': 'Getty AAT'},
+    {'label': 'pastel (material)',         'uri': 'http://vocab.getty.edu/aat/300404632', 'source': 'Getty AAT'},
+]
+
+SUPPORT_TERMS = [
+    # Base / carrier materials
+    {'label': 'paper (fiber product)',       'uri': 'http://vocab.getty.edu/aat/300014109', 'source': 'Getty AAT'},
+    {'label': 'wove paper',                  'uri': 'http://vocab.getty.edu/aat/300014187', 'source': 'Getty AAT'},
+    {'label': 'laid paper',                  'uri': 'http://vocab.getty.edu/aat/300014184', 'source': 'Getty AAT'},
+    {'label': 'tracing paper',               'uri': 'http://vocab.getty.edu/aat/300014161', 'source': 'Getty AAT'},
+    {'label': 'tracing vellum',              'uri': 'http://vocab.getty.edu/aat/300014164', 'source': 'Getty AAT'},
+    {'label': 'vellum (parchment)',          'uri': 'http://vocab.getty.edu/aat/300011852', 'source': 'Getty AAT'},
+    {'label': 'parchment (animal material)', 'uri': 'http://vocab.getty.edu/aat/300011851', 'source': 'Getty AAT'},
+    {'label': 'plastic drafting film',       'uri': 'http://vocab.getty.edu/aat/300419267', 'source': 'Getty AAT'},
+    {'label': 'linen (material)',            'uri': 'http://vocab.getty.edu/aat/300014069', 'source': 'Getty AAT'},
+    {'label': 'cloth',                       'uri': 'http://vocab.getty.edu/aat/300162391', 'source': 'Getty AAT'},
+    {'label': 'illustration board',          'uri': 'http://vocab.getty.edu/aat/300014229', 'source': 'Getty AAT'},
+    {'label': 'cardboard',                   'uri': 'http://vocab.getty.edu/aat/300014224', 'source': 'Getty AAT'},
+]
 
 
 if __name__ == "__main__":

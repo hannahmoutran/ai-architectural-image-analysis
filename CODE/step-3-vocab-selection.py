@@ -162,30 +162,23 @@ class VocabularySelector:
             content_parts.append(f"NAMED ENTITIES:\n{', '.join(named_entities) if isinstance(named_entities, list) else named_entities}")
         if analysis.get('date_on_drawing'):
             content_parts.append(f"DATE:\n{analysis['date_on_drawing']}")
-        if analysis.get('format_media'):
-            content_parts.append(f"FORMAT MEDIA:\n{analysis['format_media']}")
-        if analysis.get('medium'):
-            content_parts.append(f"MEDIUM:\n{analysis['medium']}")
-        if analysis.get('support'):
-            content_parts.append(f"SUPPORT:\n{analysis['support']}")
-
         content_description = "\n\n".join(content_parts)
 
         topic_to_terms = analysis.get('vocabulary_search_results', {})
-        medium_to_terms = analysis.get('medium_vocabulary_search_results', {})
+        genre_to_terms = analysis.get('genre_vocabulary_search_results', {})
 
-        if not topic_to_terms and not medium_to_terms:
+        if not topic_to_terms and not genre_to_terms:
             return None
 
         topics_section = self._build_topic_organized_terms(topic_to_terms) if topic_to_terms else ""
-        medium_section = self._build_topic_organized_terms(medium_to_terms) if medium_to_terms else ""
+        genre_section = self._build_topic_organized_terms(genre_to_terms) if genre_to_terms else ""
 
-        medium_prompt_section = ""
-        if medium_section:
-            medium_prompt_section = f"""
-FORMAT/MEDIA VOCABULARY TERMS (Getty AAT only):
-{medium_section}
-Select the most accurate Getty AAT terms for the medium and support materials. Only select terms that precisely match the materials described in the Format Media field. Use exact labels.
+        genre_prompt_section = ""
+        if genre_section:
+            genre_prompt_section = f"""
+GENRE VOCABULARY TERMS (Getty AAT only):
+{genre_section}
+Select the most accurate Getty AAT terms for the drawing type/genre. Only select terms that precisely match the genre described. Use exact labels.
 """
 
         user_prompt = f"""Analyze this architectural drawing metadata and select appropriate vocabulary terms:
@@ -194,7 +187,7 @@ Select the most accurate Getty AAT terms for the medium and support materials. O
 
 AVAILABLE VOCABULARY TERMS BY TOPIC:
 {topics_section}
-{medium_prompt_section}
+{genre_prompt_section}
 Select the most relevant terms following your instructions. Use exact labels without [source] brackets. Skip topics with no genuinely relevant terms.
 """
         return user_prompt
@@ -567,11 +560,11 @@ class ArchitecturalDrawingsVocabularyProcessor:
         print(f"\nProcessing completed: {processed_entries}/{total_entries} entries processed")
         return selection_results
 
-    def match_selected_labels_to_original_terms(self, selected_labels: List[str], vocab_search_results: Dict[str, List[Dict]], medium_vocab_results: Dict[str, List[Dict]] = None) -> List[Dict]:
+    def match_selected_labels_to_original_terms(self, selected_labels: List[str], vocab_search_results: Dict[str, List[Dict]], genre_vocab_results: Dict[str, List[Dict]] = None) -> List[Dict]:
         """Match selected labels to original terms with source priority.
 
         Tracks which subject each term was derived from (for cascade rejection).
-        Returns terms with 'is_medium_term' flag set appropriately.
+        Returns terms with 'is_genre_term' flag set appropriately.
         """
         import re
 
@@ -581,16 +574,16 @@ class ArchitecturalDrawingsVocabularyProcessor:
                 if isinstance(term, dict):
                     t = term.copy()
                     t['derived_from_topic'] = topic
-                    t['is_medium_term'] = False
+                    t['is_genre_term'] = False
                     all_available_terms.append(t)
 
-        if medium_vocab_results:
-            for topic, terms in medium_vocab_results.items():
+        if genre_vocab_results:
+            for topic, terms in genre_vocab_results.items():
                 for term in terms:
                     if isinstance(term, dict):
                         t = term.copy()
                         t['derived_from_topic'] = topic
-                        t['is_medium_term'] = True
+                        t['is_genre_term'] = True
                         all_available_terms.append(t)
 
         def normalize_for_comparison(label: str) -> str:
@@ -616,20 +609,26 @@ class ArchitecturalDrawingsVocabularyProcessor:
                         candidate_matches.append(term)
 
             if candidate_matches:
-                best_match = min(candidate_matches, key=lambda t: source_priority.get(t.get('source', ''), 999))
+                genre_candidates = [c for c in candidate_matches if c.get('is_genre_term')]
+                pool = genre_candidates if genre_candidates else candidate_matches
+                best_match = min(pool, key=lambda t: source_priority.get(t.get('source', ''), 999))
                 matched_terms.append(best_match)
 
-        seen_uris = set()
-        deduplicated_terms = []
-        for term in matched_terms:
-            uri = term.get('uri', '')
-            if uri and uri not in seen_uris:
-                deduplicated_terms.append(term)
-                seen_uris.add(uri)
-            elif not uri:
-                deduplicated_terms.append(term)
+        def dedup_by_uri(terms):
+            seen = set()
+            result = []
+            for t in terms:
+                uri = t.get('uri', '')
+                if uri and uri not in seen:
+                    result.append(t)
+                    seen.add(uri)
+                elif not uri:
+                    result.append(t)
+            return result
 
-        return deduplicated_terms
+        subject_matched = [t for t in matched_terms if not t.get('is_genre_term', False)]
+        genre_matched = [t for t in matched_terms if t.get('is_genre_term', False)]
+        return dedup_by_uri(subject_matched) + dedup_by_uri(genre_matched)
 
     def update_json_data(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
         try:
@@ -643,22 +642,36 @@ class ArchitecturalDrawingsVocabularyProcessor:
                     selected_labels = [t.get('label', '').strip() for t in selected_term_responses if isinstance(t, dict)]
 
                     vocab_search_results = item['analysis'].get('vocabulary_search_results', {})
-                    medium_vocab_results = item['analysis'].get('medium_vocabulary_search_results', {})
-                    matched_terms = self.match_selected_labels_to_original_terms(selected_labels, vocab_search_results, medium_vocab_results)
+                    genre_vocab_results = item['analysis'].get('genre_vocabulary_search_results', {})
+                    matched_terms = self.match_selected_labels_to_original_terms(selected_labels, vocab_search_results, genre_vocab_results)
 
-                    subject_terms = [t for t in matched_terms if not t.get('is_medium_term', False)]
-                    medium_terms = [t for t in matched_terms if t.get('is_medium_term', False)]
+                    subject_terms = [t for t in matched_terms if not t.get('is_genre_term', False)]
+                    genre_terms = [t for t in matched_terms if t.get('is_genre_term', False)]
 
                     for t in subject_terms:
-                        t.pop('is_medium_term', None)
-                    for t in medium_terms:
-                        t.pop('is_medium_term', None)
+                        t.pop('is_genre_term', None)
+                    for t in genre_terms:
+                        t.pop('is_genre_term', None)
 
                     item['analysis']['final_selected_terms'] = subject_terms
-                    item['analysis']['final_selected_medium_terms'] = medium_terms
+                    item['analysis']['final_selected_genre_terms'] = genre_terms
                 else:
                     item['analysis']['final_selected_terms'] = []
-                    item['analysis']['final_selected_medium_terms'] = []
+                    item['analysis']['final_selected_genre_terms'] = []
+
+                # Auto-select medium terms (first AAT match per medium/support entry, deduplicated by URI)
+                medium_vocab = item['analysis'].get('medium_vocabulary_search_results', {})
+                auto_medium_terms = []
+                seen_medium_uris = set()
+                for terms in medium_vocab.values():
+                    if terms:
+                        first = terms[0]
+                        uri = first.get('uri', '')
+                        if uri not in seen_medium_uris:
+                            auto_medium_terms.append(first)
+                            if uri:
+                                seen_medium_uris.add(uri)
+                item['analysis']['final_selected_medium_terms'] = auto_medium_terms
 
                 updated_items.append(item)
 
@@ -688,12 +701,12 @@ class ArchitecturalDrawingsVocabularyProcessor:
 
             for i, item in enumerate(data_items):
                 vocab_search_results = item['analysis'].get('vocabulary_search_results', {})
-                medium_vocab_results = item['analysis'].get('medium_vocabulary_search_results', {})
+                genre_vocab_results = item['analysis'].get('genre_vocabulary_search_results', {})
                 selected_terms = item['analysis'].get('final_selected_terms', [])
-                selected_medium_terms = item['analysis'].get('final_selected_medium_terms', [])
+                selected_genre_terms = item['analysis'].get('final_selected_genre_terms', [])
 
                 selected_uris = {t['uri'] for t in selected_terms if isinstance(t, dict) and t.get('uri')}
-                selected_medium_uris = {t['uri'] for t in selected_medium_terms if isinstance(t, dict) and t.get('uri')}
+                selected_genre_uris = {t['uri'] for t in selected_genre_terms if isinstance(t, dict) and t.get('uri')}
 
                 drawing_data = {
                     "folder": item.get('folder', 'Unknown'),
@@ -702,12 +715,12 @@ class ArchitecturalDrawingsVocabularyProcessor:
                         topic: [{**t, 'selected': t.get('uri', '') in selected_uris} for t in terms if isinstance(t, dict)]
                         for topic, terms in vocab_search_results.items()
                     },
-                    "medium_vocabulary_search_results": {
-                        topic: [{**t, 'selected': t.get('uri', '') in selected_medium_uris} for t in terms if isinstance(t, dict)]
-                        for topic, terms in medium_vocab_results.items()
+                    "genre_vocabulary_search_results": {
+                        topic: [{**t, 'selected': t.get('uri', '') in selected_genre_uris} for t in terms if isinstance(t, dict)]
+                        for topic, terms in genre_vocab_results.items()
                     },
                     "final_selected_terms": selected_terms,
-                    "final_selected_medium_terms": selected_medium_terms
+                    "final_selected_genre_terms": selected_genre_terms
                 }
                 vocabulary_mapping['drawings'].append(drawing_data)
 

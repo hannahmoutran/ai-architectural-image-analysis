@@ -1144,6 +1144,35 @@ class ArchitecturalDrawingsEnhancer:
         
         return sorted(list(all_subjects)), sorted(list(all_geographic_entities))
 
+    def extract_genre_terms(self) -> List[str]:
+        """Extract all unique genre terms from the JSON data."""
+        all_genre_terms = set()
+        data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+        for item in data_items:
+            if 'analysis' in item:
+                genre_data = item['analysis'].get('genre', '')
+                if genre_data and genre_data.strip():
+                    for term in genre_data.split(';'):
+                        term = term.strip()
+                        if term:
+                            all_genre_terms.add(term)
+        return sorted(list(all_genre_terms))
+
+    def process_genre_lookup(self, genre_terms: List[str]) -> Dict[str, List[Dict]]:
+        """Look up genre terms in Getty AAT only."""
+        genre_to_terms_json = {}
+        print(f"\nProcessing genre Getty AAT lookup...")
+        for i, term in enumerate(genre_terms, 1):
+            print(f"  Genre {i}/{len(genre_terms)}: '{term}'")
+            aat_results = self.getty_finder.search_aat(term, topic=f"[genre] {term}")
+            formatted = self.format_results_for_json(aat_results)
+            genre_to_terms_json[term] = formatted
+            if formatted:
+                print(f"     Found {len(formatted)} AAT terms")
+            else:
+                print(f"     No AAT terms found")
+        return genre_to_terms_json
+
     def extract_medium_support_terms(self) -> tuple[List[str], List[str]]:
         """Extract all unique medium and support terms from the JSON data."""
         all_medium_terms = set()
@@ -1465,8 +1494,9 @@ class ArchitecturalDrawingsEnhancer:
                     geographic_to_terms_json: Dict[str, List[Dict[str, str]]],
                     chronological_to_terms_json: Dict[str, List[Dict[str, str]]],
                     medium_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
-                    support_to_terms_json: Dict[str, List[Dict[str, str]]] = None) -> bool:
-        """Add vocabulary search results to JSON file with topic-to-terms, geographic-to-terms, chronological terms, and medium/support mapping."""
+                    support_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
+                    genre_to_terms_json: Dict[str, List[Dict[str, str]]] = None) -> bool:
+        """Add vocabulary search results to JSON file with topic-to-terms, geographic-to-terms, chronological terms, medium/support mapping, and genre mapping."""
         try:
             # Skip the last item if it's API stats
             data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
@@ -1539,15 +1569,26 @@ class ArchitecturalDrawingsEnhancer:
                                 if term and support_to_terms_json and term in support_to_terms_json and support_to_terms_json[term]:
                                     medium_vocab_results[term] = support_to_terms_json[term].copy()
 
+                    # Build genre vocabulary search results for this item
+                    genre_vocab_results = {}
+                    if genre_to_terms_json:
+                        item_genre = item['analysis'].get('genre', '')
+                        if item_genre:
+                            for term in item_genre.split(';'):
+                                term = term.strip()
+                                if term and term in genre_to_terms_json and genre_to_terms_json[term]:
+                                    genre_vocab_results[term] = genre_to_terms_json[term].copy()
+
                     # Add all mappings to the analysis
                     item['analysis']['vocabulary_search_results'] = topic_to_terms
                     item['analysis']['geographic_vocabulary_search_results'] = geographic_to_terms
                     item['analysis']['medium_vocabulary_search_results'] = medium_vocab_results
+                    item['analysis']['genre_vocabulary_search_results'] = genre_vocab_results
                     # Add chronological terms from date on drawing
                     item['analysis']['chronological_vocabulary_terms'] = item_chronological_vocab_terms
                     item['analysis']['chronological_vocabulary_search_results'] = drawing_chronological_terms
 
-                    if topic_to_terms or geographic_to_terms or item_chronological_vocab_terms or medium_vocab_results:
+                    if topic_to_terms or geographic_to_terms or item_chronological_vocab_terms or medium_vocab_results or genre_vocab_results:
                         processed_items += 1
                 
                 enhanced_items.append(item)
@@ -1961,20 +2002,20 @@ class ArchitecturalDrawingsEnhancer:
         # Extract topics and geographic entities
         subjects, geographic_entities = self.extract_subject_headings()
 
-        # Extract medium and support terms for Getty AAT lookup
-        medium_terms, support_terms = self.extract_medium_support_terms()
+        # Extract genre terms for Getty AAT lookup
+        genre_terms = self.extract_genre_terms()
 
         # Extract chronological terms from actual issue dates
         chronological_terms = self.extract_all_chronological_terms()
 
-        if not subjects and not geographic_entities and not chronological_terms and not medium_terms and not support_terms:
-            print("No topics, geographic entities, chronological terms, or medium/support terms found in the data")
+        if not subjects and not geographic_entities and not chronological_terms and not genre_terms:
+            print("No topics, geographic entities, chronological terms, or genre terms found in the data")
             return False
 
         print(f"Found {len(subjects)} unique topics")
         print(f"Found {len(chronological_terms)} chronological terms")
         print(f"Found {len(geographic_entities)} unique geographic entities")
-        print(f"Found {len(medium_terms)} unique medium terms, {len(support_terms)} unique support terms")
+        print(f"Found {len(genre_terms)} unique genre terms")
 
         # Process multi-vocabulary lookup with comprehensive logging
         (subject_to_terms_display, subject_to_terms_json,
@@ -1983,12 +2024,12 @@ class ArchitecturalDrawingsEnhancer:
             subjects, geographic_entities, chronological_terms
         )
 
-        # Process medium/support Getty AAT lookup
-        medium_to_terms_json, support_to_terms_json = self.process_medium_support_lookup(medium_terms, support_terms)
+        # Process genre Getty AAT lookup
+        genre_to_terms_json = self.process_genre_lookup(genre_terms)
 
-        # Enhance JSON file
+        # Enhance JSON file (medium/support handled via curated list in HTML; no AI lookup needed)
         if not self.enhance_json_file(subject_to_terms_json, geographic_to_terms_json, chronological_to_terms_json,
-                                      medium_to_terms_json, support_to_terms_json):
+                                      genre_to_terms_json=genre_to_terms_json):
             return False
 
         # Create vocabulary report (uses display format for human-readable output)
@@ -2007,15 +2048,13 @@ class ArchitecturalDrawingsEnhancer:
         # Final summary
         subjects_with_terms = sum(1 for terms in subject_to_terms_display.values() if terms)
         geo_with_terms = sum(1 for terms in geographic_to_terms_display.values() if terms)
-        medium_with_terms = sum(1 for terms in medium_to_terms_json.values() if terms)
-        support_with_terms = sum(1 for terms in support_to_terms_json.values() if terms)
+        genre_with_terms = sum(1 for terms in genre_to_terms_json.values() if terms)
 
         print(f"\nSTEP 2 COMPLETE: Enhanced with vocabulary terms in {os.path.basename(self.folder_path)}")
         print(f"Updated JSON files, vocabulary report, and API logs created")
         print(f"Topics with vocabulary terms: {subjects_with_terms}/{len(subjects)}")
         print(f"Geographic entities with vocabulary terms: {geo_with_terms}/{len(geographic_entities)}")
-        print(f"Medium terms with Getty AAT terms: {medium_with_terms}/{len(medium_terms)}")
-        print(f"Support terms with Getty AAT terms: {support_with_terms}/{len(support_terms)}")
+        print(f"Genre terms with Getty AAT terms: {genre_with_terms}/{len(genre_terms)}")
         if subjects:
             print(f"Topic success rate: {(subjects_with_terms/len(subjects)*100):.1f}%")
         if geographic_entities:

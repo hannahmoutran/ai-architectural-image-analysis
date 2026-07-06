@@ -536,7 +536,7 @@ class EntityAuthority:
             # Headers for metadata sheet - matching JSON field names
             metadata_headers = [
                 "Folder", "Filename", "Title", "Contributors", "Genre",
-                "Description", "Format/Media", "Date on Drawing", "Sheet Info",
+                "Description", "Date on Drawing", "Sheet Info",
                 "Topics (AI)", "Subject Headings (Controlled Vocab)",
                 "Named Entities", "Geographic Entities", "Content Warning"
             ]
@@ -620,7 +620,6 @@ class EntityAuthority:
                     contributors_str,
                     analysis.get('genre', '') or analysis.get('document_type', ''),
                     analysis.get('description', ''),
-                    analysis.get('format_media', ''),
                     analysis.get('date_on_drawing', '') or analysis.get('date', ''),
                     analysis.get('sheet_info', ''),
                     subjects_str,

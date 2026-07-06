@@ -49,6 +49,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
 from shared_utilities import find_newest_folder
+from config import MEDIUM_TERMS, SUPPORT_TERMS
 
 
 class ArchivistEditsIntegrator:
@@ -104,6 +105,10 @@ class ArchivistEditsIntegrator:
             'medium_selected_total': 0,
             'medium_selected_approved': 0,
             'medium_selected_rejected': 0,
+            # Genre term metrics (Getty AAT genre-selected-* terms)
+            'genre_selected_total': 0,
+            'genre_selected_approved': 0,
+            'genre_selected_rejected': 0,
             # Per-record detailed metrics
             'per_record_metrics': [],
             'reviewed_only_metrics': [],
@@ -235,7 +240,6 @@ class ArchivistEditsIntegrator:
             'title': 'title',
             'genre': 'genre',
             'description': 'description',
-            'format_media': 'format_media',
             'date_on_drawing': 'date_on_drawing',
             'sheet_info': 'sheet_info',
             'content_warning': 'content_warning',
@@ -246,8 +250,7 @@ class ArchivistEditsIntegrator:
         }
 
         # Fields that are text (for character-level diff)
-        text_fields = {'title', 'genre', 'description', 'format_media', 'medium', 'support',
-                       'date_on_drawing', 'sheet_info', 'content_warning'}
+        text_fields = {'title', 'genre', 'description', 'date_on_drawing', 'sheet_info', 'content_warning'}
         # Fields that are lists
         list_fields = {'contributors', 'named_entities', 'geographic_entities'}
 
@@ -361,6 +364,30 @@ class ArchivistEditsIntegrator:
                 other_terms = []
                 selected_labels = {t.get('label', '').lower() for t in analysis.get('final_selected_medium_terms', [])}
                 for candidates in medium_results.values():
+                    for t in candidates:
+                        if t.get('label', '').lower() not in selected_labels:
+                            other_terms.append(t)
+                if 0 <= idx < len(other_terms):
+                    return other_terms[idx].get('label', term_id)
+            elif term_id.startswith('medium-curated-'):
+                idx = int(term_id.split('medium-curated-', 1)[1])
+                if 0 <= idx < len(MEDIUM_TERMS):
+                    return MEDIUM_TERMS[idx].get('label', term_id)
+            elif term_id.startswith('support-curated-'):
+                idx = int(term_id.split('support-curated-', 1)[1])
+                if 0 <= idx < len(SUPPORT_TERMS):
+                    return SUPPORT_TERMS[idx].get('label', term_id)
+            elif term_id.startswith('genre-selected-'):
+                idx = int(term_id.split('genre-selected-', 1)[1])
+                terms = analysis.get('final_selected_genre_terms', [])
+                if 0 <= idx < len(terms):
+                    return terms[idx].get('label', term_id)
+            elif term_id.startswith('genre-other-'):
+                idx = int(term_id.split('genre-other-', 1)[1])
+                genre_results = analysis.get('genre_vocabulary_search_results', {})
+                other_terms = []
+                selected_labels = {t.get('label', '').lower() for t in analysis.get('final_selected_genre_terms', [])}
+                for candidates in genre_results.values():
                     for t in candidates:
                         if t.get('label', '').lower() not in selected_labels:
                             other_terms.append(t)
@@ -678,8 +705,7 @@ class ArchivistEditsIntegrator:
             # Accumulate lengths for unedited text fields in this reviewed record.
             # This ensures pct_changed reflects "fraction of all reviewed text that needed
             # correction" rather than only measuring within the edited subset.
-            _text_fields = {'title', 'genre', 'description', 'format_media', 'medium', 'support',
-                            'date_on_drawing', 'sheet_info', 'content_warning'}
+            _text_fields = {'title', 'genre', 'description', 'date_on_drawing', 'sheet_info', 'content_warning'}
             _edited_text_fields = {
                 fn for fn, ed in (edits or {}).items()
                 if fn in _text_fields and ed.get('edited', False)
@@ -756,6 +782,14 @@ class ArchivistEditsIntegrator:
                     record_metrics['term_decisions'] = {}
                 record_metrics['term_decisions']['archivist_added_custom'] = len(custom_terms)
                 record_metrics['term_decisions']['topics_custom_added'] = len(custom_topics)
+
+            # Apply custom medium/support terms entered via the Format/Media custom form
+            custom_medium_terms = decision.get('custom_medium_terms', [])
+            if custom_medium_terms:
+                analysis = record.get('analysis', {})
+                analysis['archivist_custom_medium_terms'] = custom_medium_terms
+                record['analysis'] = analysis
+                has_edits = True
 
             # Add archivist metadata
             analysis = record.get('analysis', {})
@@ -854,6 +888,11 @@ class ArchivistEditsIntegrator:
             if isinstance(medium_selected_terms, list):
                 self.stats['medium_selected_total'] += len(medium_selected_terms)
 
+            # Count AI-selected genre terms (Getty AAT)
+            genre_selected_terms = analysis.get('final_selected_genre_terms', [])
+            if isinstance(genre_selected_terms, list):
+                self.stats['genre_selected_total'] += len(genre_selected_terms)
+
         # Calculate derived stats
         # topics_accepted = total - rejected (rejected is counted in apply_term_decisions)
         self.stats['topics_accepted'] = self.stats['topics_total'] - self.stats['topics_rejected']
@@ -910,8 +949,8 @@ class ArchivistEditsIntegrator:
 
             # Headers for Final Metadata - matching step-4 structure
             metadata_headers = [
-                "Folder", "Filename", "Title", "Contributors", "Genre",
-                "Description", "Format/Media", "Format/Media Terms (Getty AAT)", "Date on Drawing", "Sheet Info",
+                "Folder", "Filename", "Title", "Contributors", "Genre", "Genre Terms (Getty AAT)",
+                "Description", "Format/Media Terms (Getty AAT)", "Date on Drawing", "Sheet Info",
                 "Topics (AI)", "Subject Headings (Controlled Vocab)",
                 "Named Entities", "Geographic Entities", "Content Warning",
                 "Reviewed", "Archivist", "Review Date", "Notes"
@@ -981,14 +1020,21 @@ class ArchivistEditsIntegrator:
                         for t in medium_terms_list if t.get('label')
                     )
 
+                    # Format genre terms as semicolon-separated labels with URIs
+                    genre_terms_list = metadata.get('genre_terms', [])
+                    genre_terms_str = '; '.join(
+                        f"{t.get('label', '')} ({t.get('uri', '')})" if t.get('uri') else t.get('label', '')
+                        for t in genre_terms_list if t.get('label')
+                    )
+
                     row_data = [
                         record.get('folder', ''),
                         filename,
                         metadata.get('title', ''),
                         contributors_str,
                         metadata.get('genre', ''),
+                        genre_terms_str,
                         metadata.get('description', ''),
-                        metadata.get('format_media', ''),
                         medium_terms_str,
                         metadata.get('date_on_drawing', ''),
                         metadata.get('sheet_info', ''),
@@ -1746,23 +1792,22 @@ class ArchivistEditsIntegrator:
                 filtered_terms.append(term)
             analysis['final_selected_terms'] = filtered_terms
 
-            # Filter final_selected_medium_terms (remove rejected medium/support headings)
-            medium_terms = analysis.get('final_selected_medium_terms', [])
-            filtered_medium = []
-            for i, term in enumerate(medium_terms):
-                decision = term_decisions.get(f"medium-selected-{i}")
+            # Filter final_selected_genre_terms (remove rejected genre headings)
+            genre_terms = analysis.get('final_selected_genre_terms', [])
+            filtered_genre = []
+            for i, term in enumerate(genre_terms):
+                decision = term_decisions.get(f"genre-selected-{i}")
                 if decision == 'rejected':
                     continue
-                filtered_medium.append(term)
-            analysis['final_selected_medium_terms'] = filtered_medium
+                filtered_genre.append(term)
+            analysis['final_selected_genre_terms'] = filtered_genre
 
-            # Prune archivist_term_decisions: keep only opt-in approvals (other-*, medium-other-*)
-            # so generate_final_metadata() can still add those terms on future runs.
-            # Remove rejection decisions (subject-*, selected-*, medium-selected-*) since
-            # those are now encoded in the filtered lists above.
+            # Prune archivist_term_decisions: keep opt-in approvals and curated selections
+            # so generate_final_metadata() can re-apply them on future runs.
             pruned_decisions = {
                 tid: dec for tid, dec in term_decisions.items()
-                if tid.startswith('other-') or tid.startswith('medium-other-')
+                if (tid.startswith('other-') or tid.startswith('genre-other-')
+                    or tid.startswith('medium-curated-') or tid.startswith('support-curated-'))
             }
             analysis['archivist_term_decisions'] = pruned_decisions
 
@@ -1845,37 +1890,67 @@ class ArchivistEditsIntegrator:
                     'derived_from_topic': term.get('derived_from_topic', '')
                 })
 
-            # Filter medium/support vocabulary terms: keep only approved ones
-            final_selected_medium_terms = analysis.get('final_selected_medium_terms', [])
+            # Build format_media_terms from archivist-selected curated medium/support terms
             approved_medium_terms = []
-            for i, term in enumerate(final_selected_medium_terms):
-                term_id = f"medium-selected-{i}"
+            for i, term in enumerate(MEDIUM_TERMS):
+                term_id = f"medium-curated-{i}"
+                if term_decisions.get(term_id) == 'approved':
+                    approved_medium_terms.append({
+                        'label': term.get('label', ''),
+                        'uri': term.get('uri', ''),
+                        'source': term.get('source', 'Getty AAT'),
+                        'derived_from_topic': ''
+                    })
+            for i, term in enumerate(SUPPORT_TERMS):
+                term_id = f"support-curated-{i}"
+                if term_decisions.get(term_id) == 'approved':
+                    approved_medium_terms.append({
+                        'label': term.get('label', ''),
+                        'uri': term.get('uri', ''),
+                        'source': term.get('source', 'Getty AAT'),
+                        'derived_from_topic': ''
+                    })
+            # Add custom medium/support terms entered by archivist via the HTML form
+            for term in analysis.get('archivist_custom_medium_terms', []):
+                if term.get('label'):
+                    approved_medium_terms.append({
+                        'label': term.get('label', ''),
+                        'uri': term.get('uri', ''),
+                        'source': term.get('source', 'Manual'),
+                        'derived_from_topic': ''
+                    })
+
+            # Filter genre vocabulary terms: keep only approved ones
+            final_selected_genre_terms = analysis.get('final_selected_genre_terms', [])
+            approved_genre_terms = []
+            for i, term in enumerate(final_selected_genre_terms):
+                term_id = f"genre-selected-{i}"
                 decision = term_decisions.get(term_id)
                 if decision == 'rejected':
                     continue  # Skip explicitly rejected
-                approved_medium_terms.append({
+                approved_genre_terms.append({
                     'label': term.get('label', ''),
                     'uri': term.get('uri', ''),
                     'source': term.get('source', ''),
                     'derived_from_topic': term.get('derived_from_topic', '')
                 })
 
-            # Add "medium-other-*" terms that were approved from the medium vocabulary list
-            medium_vocab_results = analysis.get('medium_vocabulary_search_results', {})
-            if medium_vocab_results:
-                selected_medium_labels = set(t.get('label', '').lower() for t in final_selected_medium_terms)
-                other_medium_list = []
-                for topic, terms in medium_vocab_results.items():
+            # Add "genre-other-*" terms that were approved from the genre vocabulary list
+            genre_vocab_results = analysis.get('genre_vocabulary_search_results', {})
+            if genre_vocab_results:
+                selected_genre_labels = set(t.get('label', '').lower() for t in final_selected_genre_terms)
+                other_genre_list = []
+                for topic, terms in genre_vocab_results.items():
                     for term in terms:
                         label = term.get('label', '')
-                        if label.lower() not in selected_medium_labels:
-                            other_medium_list.append({'topic': topic, 'label': label,
-                                                      'uri': term.get('uri', ''), 'source': term.get('source', 'Getty AAT')})
-                for i, term in enumerate(other_medium_list):
-                    term_id = f"medium-other-{i}"
+                        if label.lower() not in selected_genre_labels:
+                            other_genre_list.append({'topic': topic, 'label': label,
+                                                     'uri': term.get('uri', ''), 'source': term.get('source', 'Getty AAT')})
+                for i, term in enumerate(other_genre_list):
+                    term_id = f"genre-other-{i}"
                     decision = term_decisions.get(term_id)
                     if decision == 'approved':
-                        approved_medium_terms.append({
+                        approved_genre_terms.append({
                             'label': term['label'],
                             'uri': term['uri'],
                             'source': term['source'],
@@ -1891,10 +1966,8 @@ class ArchivistEditsIntegrator:
                     'title': analysis.get('title', ''),
                     'contributors': analysis.get('contributors', []),
                     'genre': analysis.get('genre', ''),
+                    'genre_terms': approved_genre_terms,
                     'description': analysis.get('description', ''),
-                    'format_media': analysis.get('format_media', ''),
-                    'medium': analysis.get('medium', ''),
-                    'support': analysis.get('support', ''),
                     'format_media_terms': approved_medium_terms,
                     'date_on_drawing': analysis.get('date_on_drawing', ''),
                     'sheet_info': analysis.get('sheet_info', ''),

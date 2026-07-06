@@ -28,6 +28,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
 from shared_utilities import find_newest_folder
+from config import MEDIUM_TERMS, SUPPORT_TERMS
 
 
 class HTMLReviewBuilder:
@@ -546,6 +547,160 @@ class HTMLReviewBuilder:
             font-weight: bold;
         }
         .page-link:hover { background-color: #2980b9; }
+
+        /* Topic pills layout */
+        .topics-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 4px 0 10px 0;
+        }
+        .topics-pills .vocab-term {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px 5px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            width: auto;
+        }
+        .topics-pills .vocab-term.approved {
+            background: #e8f5e9;
+            border-color: #66bb6a;
+        }
+        .topics-pills .vocab-term.rejected {
+            text-decoration: none;
+            opacity: 0.85;
+        }
+        .topics-pills .vocab-term.rejected .vocab-term-label {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .topics-pills .vocab-term.cascade-rejected {
+            text-decoration: none;
+        }
+        .topics-pills .vocab-term.cascade-rejected .vocab-term-label {
+            text-decoration: line-through;
+            opacity: 0.6;
+        }
+        .topics-pills .vocab-term-source {
+            font-size: 10px;
+            padding: 1px 5px;
+            opacity: 0.65;
+        }
+        .topics-pills .term-btn {
+            padding: 2px 7px;
+            font-size: 11px;
+            border-radius: 10px;
+        }
+
+        /* Heading card improvements (selected subject headings) */
+        .headings-list .vocab-term {
+            border-left: 3px solid #ddd;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .headings-list .vocab-term.approved {
+            border-left-color: #28a745;
+        }
+        .headings-list .vocab-term.rejected {
+            border-left-color: #dc3545;
+        }
+        .headings-list .vocab-term.cascade-rejected {
+            border-left-color: #ff9999;
+        }
+
+        /* Collapsible section (Other Subject Headings / Other Format/Media) */
+        .collapsible-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 10px 14px;
+            background: #f5f7ff;
+            border: 1px dashed #b0bdd6;
+            border-radius: 6px;
+            user-select: none;
+            font-weight: 600;
+            font-size: 13px;
+            color: #3d5280;
+            transition: background 0.15s;
+            margin-top: 15px;
+        }
+        .collapsible-toggle:hover { background: #eaeefc; }
+        .collapsible-toggle .toggle-label { flex: 1; }
+        .term-count-badge {
+            font-size: 11px;
+            font-weight: normal;
+            padding: 2px 9px;
+            background: #dce3f5;
+            border-radius: 10px;
+            color: #3d5280;
+            white-space: nowrap;
+        }
+        .chevron {
+            font-size: 11px;
+            transition: transform 0.2s;
+            color: #6b85b5;
+        }
+        .chevron.open { transform: rotate(180deg); }
+        .collapsible-content { padding-top: 4px; }
+        .collapsible-content .vocab-group {
+            margin-top: 0;
+            border-top: none;
+            border-radius: 0 0 5px 5px;
+        }
+
+        /* Alternative terms card grid */
+        .other-terms-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+            gap: 10px;
+            padding: 4px 0 8px 0;
+        }
+        .other-terms-grid .vocab-term {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0;
+            padding: 12px;
+            min-height: 90px;
+            border-radius: 6px;
+        }
+        .other-terms-grid .vocab-term .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .other-terms-grid .vocab-term .vocab-term-label {
+            font-weight: bold;
+            font-size: 14px;
+            line-height: 1.35;
+            color: #2c3e50;
+            flex: 1;
+        }
+        .other-terms-grid .vocab-term .card-badges {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+        .other-terms-grid .vocab-term .term-actions { margin-top: auto; }
+        .other-terms-grid .vocab-term.approved {
+            background: #d4edda;
+            border-color: #28a745;
+        }
+        .other-terms-grid .vocab-term.rejected {
+            text-decoration: none;
+            opacity: 0.85;
+        }
+        .other-terms-grid .vocab-term.rejected .vocab-term-label {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .other-terms-grid .vocab-term .term-btn { text-decoration: none; }
         """
 
     def get_javascript(self):
@@ -680,9 +835,19 @@ class HTMLReviewBuilder:
 
             const edits = getStorage('edits-' + recordId, {{}});
             const originalContribs = getStorage('original-contributors-' + recordId, null);
-            edits['contributors'] = {{ value: contributors, original: originalContribs, edited: true }};
+            const isEdited = JSON.stringify(contributors) !== JSON.stringify(originalContribs);
+
+            if (isEdited) {{
+                edits['contributors'] = {{ value: contributors, original: originalContribs, edited: true }};
+            }} else {{
+                delete edits['contributors'];
+            }}
             setStorage('edits-' + recordId, edits);
-            autoMarkReviewed(recordId);
+
+            const group = container.closest('.field-group');
+            if (group) group.classList.toggle('edited', isEdited);
+
+            if (isEdited) autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -710,9 +875,19 @@ class HTMLReviewBuilder:
 
             const edits = getStorage('edits-' + recordId, {{}});
             const originalValues = getStorage('original-' + fieldName + '-' + recordId, null);
-            edits[fieldName] = {{ value: values, original: originalValues, edited: true }};
+            const isEdited = JSON.stringify(values) !== JSON.stringify(originalValues);
+
+            if (isEdited) {{
+                edits[fieldName] = {{ value: values, original: originalValues, edited: true }};
+            }} else {{
+                delete edits[fieldName];
+            }}
             setStorage('edits-' + recordId, edits);
-            autoMarkReviewed(recordId);
+
+            const group = container.closest('.field-group');
+            if (group) group.classList.toggle('edited', isEdited);
+
+            if (isEdited) autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
         }}
 
@@ -946,6 +1121,54 @@ class HTMLReviewBuilder:
             updateRecordStatus(recordId);
         }}
 
+        function addCustomMediumTerm(recordId) {{
+            const labelInput = document.getElementById('new-medium-label-' + recordId);
+            const uriInput   = document.getElementById('new-medium-uri-' + recordId);
+            const sourceSelect = document.getElementById('new-medium-source-' + recordId);
+
+            const label  = labelInput.value.trim();
+            const uri    = uriInput.value.trim();
+            const source = sourceSelect.value;
+
+            if (!label) {{
+                alert('Please enter a term label');
+                return;
+            }}
+
+            const customMediumTerms = getStorage('custom-medium-terms-' + recordId, []);
+            const termId = 'medium-custom-' + Date.now();
+            customMediumTerms.push({{ id: termId, label, source, uri }});
+            setStorage('custom-medium-terms-' + recordId, customMediumTerms);
+
+            const container = document.getElementById('custom-medium-terms-container-' + recordId);
+            const uriDisplay = uri ? `<a href="${{uri}}" target="_blank" class="term-uri" title="${{uri}}">URI</a>` : '';
+            container.insertAdjacentHTML('beforeend', `
+                <div class="vocab-term approved" id="term-${{recordId}}-${{termId}}">
+                    <span class="vocab-term-label">${{label}}</span>
+                    ${{uriDisplay}}
+                    <span class="vocab-term-source aat">${{source}}</span>
+                    <div class="term-actions">
+                        <button class="term-btn reject" onclick="removeCustomMediumTerm(${{recordId}}, '${{termId}}')">Remove</button>
+                    </div>
+                </div>
+            `);
+
+            labelInput.value = '';
+            uriInput.value   = '';
+            autoMarkReviewed(recordId);
+            updateRecordStatus(recordId);
+        }}
+
+        function removeCustomMediumTerm(recordId, termId) {{
+            let customMediumTerms = getStorage('custom-medium-terms-' + recordId, []);
+            customMediumTerms = customMediumTerms.filter(t => t.id !== termId);
+            setStorage('custom-medium-terms-' + recordId, customMediumTerms);
+
+            const termEl = document.getElementById('term-' + recordId + '-' + termId);
+            if (termEl) termEl.remove();
+            updateRecordStatus(recordId);
+        }}
+
         function updateProgress() {{
             const totalRecords = parseInt(document.body.dataset.totalRecords || '0');
             let reviewed = 0;
@@ -1004,7 +1227,7 @@ class HTMLReviewBuilder:
             }}
 
             // Store original values for text/textarea fields (for tracking edits including deletions)
-            const textFields = ['title', 'genre', 'description', 'format_media', 'medium', 'support', 'date_on_drawing', 'sheet_info', 'content_warning'];
+            const textFields = ['title', 'genre', 'description', 'date_on_drawing', 'sheet_info', 'content_warning'];
             textFields.forEach(fieldName => {{
                 const storageKey = 'original-field-' + fieldName + '-' + recordId;
                 if (getStorage(storageKey, null) === null) {{
@@ -1127,11 +1350,12 @@ class HTMLReviewBuilder:
                 const notes = getStorage('notes-' + i, '');
                 const termDecisions = getStorage('terms-' + i, {{}});
                 const customTerms = getStorage('custom-terms-' + i, []);
+                const customMediumTerms = getStorage('custom-medium-terms-' + i, []);
                 const customTopics = getStorage('custom-topics-' + i, []);
                 const recordData = getStorage('record-data-' + i, {{}});
 
                 // Only include records that have been reviewed or have edits
-                if (reviewed || Object.keys(edits).length > 0 || Object.keys(termDecisions).length > 0 || customTerms.length > 0 || customTopics.length > 0) {{
+                if (reviewed || Object.keys(edits).length > 0 || Object.keys(termDecisions).length > 0 || customTerms.length > 0 || customMediumTerms.length > 0 || customTopics.length > 0) {{
                     decisions.push({{
                         record_id: i,
                         image_path: recordData.image_path || '',
@@ -1140,6 +1364,7 @@ class HTMLReviewBuilder:
                         edits: edits,
                         term_decisions: termDecisions,
                         custom_terms: customTerms,
+                        custom_medium_terms: customMediumTerms,
                         custom_topics: customTopics,
                         archivist_notes: notes
                     }});
@@ -1182,6 +1407,15 @@ class HTMLReviewBuilder:
             }}, 100);
 
             alert('Exported ' + decisions.length + ' record decisions to:\\n' + filename);
+        }}
+
+        function toggleSection(contentId, toggleEl) {{
+            const content = document.getElementById(contentId);
+            if (!content) return;
+            const chevron = toggleEl.querySelector('.chevron');
+            const isHidden = content.style.display === 'none';
+            content.style.display = isHidden ? 'block' : 'none';
+            if (chevron) chevron.classList.toggle('open', isHidden);
         }}
 
         document.addEventListener('DOMContentLoaded', restoreState);
@@ -1251,7 +1485,10 @@ class HTMLReviewBuilder:
         html += '<div class="section-header">Topics</div>'
         html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">AI-generated topic terms. Rejecting a topic will also reject its derived subject headings below.</p>'
 
-        html += '<div class="vocab-group">'
+        html += '<div class="vocab-group headings-list">'
+        html += f'''<div class="vocab-group-title" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>AI-Generated Topics <span style="font-weight: normal; font-size: 12px; color: #666;">(auto-accepted; reject if not applicable)</span></span>
+        </div>'''
         if subjects:
             for i, subject in enumerate(subjects):
                 term_id = f"topic-{i}"
@@ -1287,7 +1524,7 @@ class HTMLReviewBuilder:
         # Selected Subject Headings - default to APPROVED (opt-out)
         final_terms = analysis.get('final_selected_terms', [])
         if final_terms:
-            html += '<div class="vocab-group">'
+            html += '<div class="vocab-group headings-list">'
             html += f'''<div class="vocab-group-title" style="display: flex; justify-content: space-between; align-items: center;">
                 <span>Selected Subject Headings <span style="font-weight: normal; font-size: 12px; color: #666;">(auto-accepted; reject if not applicable)</span></span>
             </div>'''
@@ -1357,16 +1594,23 @@ class HTMLReviewBuilder:
             has_other_choices = any(len(terms) > 0 for terms in sources.values())
 
             if has_other_choices:
-                html += '<div class="vocab-group" style="border: 1px dashed #ccc; margin-top: 15px;">'
-                html += '<div class="vocab-group-title">Other Subject Headings <span style="font-weight: normal; font-size: 12px; color: #666;">(not selected - click Add to include)</span></div>'
+                total_other_count = sum(len(t) for t in sources.values())
+                other_content_id = f"other-subjects-content-{record_id}"
+                html += f'''<div class="collapsible-toggle" onclick="toggleSection('{other_content_id}', this)" role="button">
+                    <span class="toggle-label">Alternative Subject Headings</span>
+                    <span class="term-count-badge">{total_other_count} available from vocabulary search</span>
+                    <span class="chevron">&#9660;</span>
+                </div>
+                <div class="collapsible-content" id="{other_content_id}" style="display:none;">
+                <div class="vocab-group" style="border: 1px dashed #ccc; border-top: none; border-radius: 0 0 5px 5px; margin-top: 0; padding-top: 8px;">
+                <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">Not selected — click Add to include any of these terms.</p>
+                <div class="other-terms-grid">'''
 
                 for source_name, terms in sources.items():
                     if not terms:
                         continue
 
                     source_class = source_name.lower().replace(' ', '').replace('getty', '')
-                    html += f'<div style="margin: 10px 0;">'
-                    html += f'<div style="font-weight: 600; font-size: 13px; color: #555; margin-bottom: 5px;">{source_name} ({len(terms)} options)</div>'
 
                     for i, term in enumerate(terms):
                         term_id = f"other-{source_class}-{i}"
@@ -1375,32 +1619,118 @@ class HTMLReviewBuilder:
                         uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
                         html += f'''
                         <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="other" data-category="heading">
-                            <span class="vocab-term-label">{label}</span>
-                            {uri_html}
-                            <span class="vocab-term-source {source_class}">{source_name}</span>
+                            <div class="card-header">
+                                <span class="vocab-term-label">{label}</span>
+                                <div class="card-badges">
+                                    {uri_html}
+                                    <span class="vocab-term-source {source_class}">{source_name}</span>
+                                </div>
+                            </div>
                             <div class="term-actions">
                                 <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
                                 <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
                             </div>
                         </div>'''
-                    html += '</div>'
 
-                html += '</div>'
+                html += '</div></div></div>'
 
         # ==========================================
         # SECTION 3: FORMAT/MEDIA VOCABULARY (Getty AAT)
         # ==========================================
         html += '<div class="section-header" style="margin-top: 25px;">Format/Media Vocabulary (Getty AAT)</div>'
-        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Official Getty AAT terms for the drawing medium and support materials. Derived from the Medium and Support fields above.</p>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Select all Getty AAT terms that apply to this drawing\'s medium and support. URIs link to the official Getty AAT record.</p>'
 
-        final_medium_terms = analysis.get('final_selected_medium_terms', [])
-        if final_medium_terms:
+        # --- Medium (drawing materials) ---
+        html += '<div class="vocab-group">'
+        html += '<div class="vocab-group-title">Medium <span style="font-weight: normal; font-size: 12px; color: #666;">(drawing/inscribing/coloring materials — click to select)</span></div>'
+        html += '<div class="other-terms-grid">'
+        for i, term in enumerate(MEDIUM_TERMS):
+            term_id = f"medium-curated-{i}"
+            label = self.escape_html(term.get('label', ''))
+            uri = term.get('uri', '')
+            uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+            html += f'''
+            <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="medium-curated" data-category="medium-term">
+                <div class="card-header">
+                    <span class="vocab-term-label">{label}</span>
+                    <div class="card-badges">
+                        {uri_html}
+                        <span class="vocab-term-source aat">Getty AAT</span>
+                    </div>
+                </div>
+                <div class="term-actions">
+                    <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
+                    <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
+                </div>
+            </div>'''
+        html += '</div></div>'
+
+        # --- Support (base/carrier material) ---
+        html += '<div class="vocab-group" style="margin-top: 12px;">'
+        html += '<div class="vocab-group-title">Support <span style="font-weight: normal; font-size: 12px; color: #666;">(base/carrier material — click to select)</span></div>'
+        html += '<div class="other-terms-grid">'
+        for i, term in enumerate(SUPPORT_TERMS):
+            term_id = f"support-curated-{i}"
+            label = self.escape_html(term.get('label', ''))
+            uri = term.get('uri', '')
+            uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+            html += f'''
+            <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="support-curated" data-category="medium-term">
+                <div class="card-header">
+                    <span class="vocab-term-label">{label}</span>
+                    <div class="card-badges">
+                        {uri_html}
+                        <span class="vocab-term-source aat">Getty AAT</span>
+                    </div>
+                </div>
+                <div class="term-actions">
+                    <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
+                    <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
+                </div>
+            </div>'''
+        html += '</div></div>'
+
+        # --- Custom Format/Media term form ---
+        html += f'''
+        <div class="vocab-group" style="margin-top: 12px;">
+            <div class="vocab-group-title">Add Custom Format/Media Term</div>
+            <div id="custom-medium-terms-container-{record_id}"></div>
+            <div class="add-term-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                <div>
+                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Term Label *</label>
+                    <input type="text" id="new-medium-label-{record_id}" placeholder="e.g., oil paint" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Getty AAT URI (optional)</label>
+                    <input type="text" id="new-medium-uri-{record_id}" placeholder="e.g., http://vocab.getty.edu/aat/300015050" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div style="display: flex; gap: 10px; align-items: end;">
+                    <div>
+                        <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Source</label>
+                        <select id="new-medium-source-{record_id}" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="Getty AAT">Getty AAT</option>
+                            <option value="Manual">Manual/Other</option>
+                        </select>
+                    </div>
+                    <button class="add-btn" onclick="addCustomMediumTerm({record_id})" style="height: 38px;">Add Term</button>
+                </div>
+            </div>
+        </div>'''
+
+        # ==========================================
+        # SECTION 4: GENRE VOCABULARY (Getty AAT)
+        # ==========================================
+        html += '<div class="section-header" style="margin-top: 25px;">Genre Vocabulary (Getty AAT)</div>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Official Getty AAT terms for the drawing type/genre. Derived from the Genre field above.</p>'
+
+        final_genre_terms = analysis.get('final_selected_genre_terms', [])
+        if final_genre_terms:
             html += '<div class="vocab-group">'
             html += f'''<div class="vocab-group-title" style="display: flex; justify-content: space-between; align-items: center;">
-                <span>Selected Format/Media Terms <span style="font-weight: normal; font-size: 12px; color: #666;">(auto-accepted; reject if not applicable)</span></span>
+                <span>Selected Genre Terms <span style="font-weight: normal; font-size: 12px; color: #666;">(auto-accepted; reject if not applicable)</span></span>
             </div>'''
-            for i, term in enumerate(final_medium_terms):
-                term_id = f"medium-selected-{i}"
+            for i, term in enumerate(final_genre_terms):
+                term_id = f"genre-selected-{i}"
                 label = self.escape_html(term.get('label', ''))
                 uri = term.get('uri', '')
                 source = term.get('source', 'Unknown')
@@ -1409,7 +1739,7 @@ class HTMLReviewBuilder:
                 derived_from = term.get('derived_from_topic', '')
                 derived_badge = f'<span class="derived-from-badge" title="Derived from: {self.escape_html(derived_from)}">{self.escape_html(derived_from[:25])}{"..." if len(derived_from) > 25 else ""}</span>' if derived_from else ''
                 html += f'''
-                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="medium-selected" data-category="medium-term">
+                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="genre-selected" data-category="genre-term">
                     <span class="vocab-term-label">{label}</span>
                     {derived_badge}
                     {uri_html}
@@ -1421,45 +1751,57 @@ class HTMLReviewBuilder:
                 </div>'''
             html += '</div>'
         else:
-            html += '<div class="vocab-group"><p style="color: #999; font-style: italic;">No Format/Media vocabulary terms selected</p></div>'
+            html += '<div class="vocab-group"><p style="color: #999; font-style: italic;">No Genre vocabulary terms selected</p></div>'
 
-        # Other Format/Media terms - opt-IN
-        medium_vocab_results = analysis.get('medium_vocabulary_search_results', {})
-        if medium_vocab_results:
-            selected_medium_labels = set(t.get('label', '').lower() for t in final_medium_terms)
-            other_medium_terms = []
-            for topic, terms in medium_vocab_results.items():
+        # Other Genre terms - opt-IN
+        genre_vocab_results = analysis.get('genre_vocabulary_search_results', {})
+        if genre_vocab_results:
+            selected_genre_labels = set(t.get('label', '').lower() for t in final_genre_terms)
+            other_genre_terms = []
+            for topic, terms in genre_vocab_results.items():
                 for term in terms:
                     label = term.get('label', '')
-                    if label.lower() not in selected_medium_labels:
-                        other_medium_terms.append({
+                    if label.lower() not in selected_genre_labels:
+                        other_genre_terms.append({
                             'topic': topic,
                             'label': label,
                             'uri': term.get('uri', ''),
                             'source': term.get('source', 'Getty AAT')
                         })
 
-            if other_medium_terms:
-                html += '<div class="vocab-group" style="border: 1px dashed #ccc; margin-top: 15px;">'
-                html += '<div class="vocab-group-title">Other Format/Media Options <span style="font-weight: normal; font-size: 12px; color: #666;">(not selected - click Add to include)</span></div>'
-                for i, term in enumerate(other_medium_terms):
-                    term_id = f"medium-other-{i}"
+            if other_genre_terms:
+                other_genre_content_id = f"other-genre-content-{record_id}"
+                html += f'''<div class="collapsible-toggle" onclick="toggleSection('{other_genre_content_id}', this)" role="button">
+                    <span class="toggle-label">Alternative Genre Options</span>
+                    <span class="term-count-badge">{len(other_genre_terms)} available from vocabulary search</span>
+                    <span class="chevron">&#9660;</span>
+                </div>
+                <div class="collapsible-content" id="{other_genre_content_id}" style="display:none;">
+                <div class="vocab-group" style="border: 1px dashed #ccc; border-top: none; border-radius: 0 0 5px 5px; margin-top: 0; padding-top: 8px;">
+                <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">Not selected — click Add to include any of these terms.</p>
+                <div class="other-terms-grid">'''
+                for i, term in enumerate(other_genre_terms):
+                    term_id = f"genre-other-{i}"
                     label = self.escape_html(term['label'])
                     uri = term.get('uri', '')
                     source = term.get('source', 'Getty AAT')
                     source_class = source.lower().replace(' ', '').replace('getty', '')
                     uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
                     html += f'''
-                    <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="medium-other" data-category="medium-term">
-                        <span class="vocab-term-label">{label}</span>
-                        {uri_html}
-                        <span class="vocab-term-source {source_class}">{source}</span>
+                    <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="genre-other" data-category="genre-term">
+                        <div class="card-header">
+                            <span class="vocab-term-label">{label}</span>
+                            <div class="card-badges">
+                                {uri_html}
+                                <span class="vocab-term-source {source_class}">{source}</span>
+                            </div>
+                        </div>
                         <div class="term-actions">
                             <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
                             <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
                         </div>
                     </div>'''
-                html += '</div>'
+                html += '</div></div></div>'
 
         # Custom subject headings container and add form
         html += f'''
@@ -1540,9 +1882,6 @@ class HTMLReviewBuilder:
             ('title', 'Title', 'text'),
             ('genre', 'Genre', 'text'),
             ('description', 'Description', 'textarea-large'),
-            ('format_media', 'Format/Media', 'text'),
-            ('medium', 'Medium (for Getty AAT lookup)', 'text'),
-            ('support', 'Support (for Getty AAT lookup)', 'text'),
             ('date_on_drawing', 'Date on Drawing', 'text'),
             ('sheet_info', 'Sheet Info', 'textarea'),
             ('content_warning', 'Content Warning', 'text'),
@@ -1550,6 +1889,8 @@ class HTMLReviewBuilder:
 
         for field_name, label, field_type in fields:
             value = analysis.get(field_name, '')
+            if field_name == 'content_warning' and (not value or str(value).strip().lower() in ('none', 'n/a')):
+                continue
             escaped_value = self.escape_html(value)
 
             html += f'<div class="field-group">'
@@ -1576,7 +1917,7 @@ class HTMLReviewBuilder:
 
         # Named Entities
         html += '<div class="field-group">'
-        html += '<div class="field-label">Named Entities</div>'
+        html += '<div class="field-label">Named Entities <span style="font-weight: normal; font-size: 12px; color: #666;">(buildings, clients, organizations, etc - not direct contributors)</span></div>'
         html += self.generate_list_field_html(analysis.get('named_entities', []), global_id, 'named_entities', 'Entity name...')
         html += '</div>'
 

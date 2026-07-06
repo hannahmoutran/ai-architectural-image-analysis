@@ -42,14 +42,11 @@ FIELDS TO EXTRACT:
 - Title: From title block or drawing text. Use [untitled] if none found.
 - Contributors: People/firms with roles, format as "Name (Role)" separated by semicolons. Roles: Architect, Draftsman, Engineer, Contractor, Owner, Firm, Client, etc.
 - Genre: Drawing type (floor plan, elevation, section, detail, site plan, perspective, etc.). Be specific (e.g., "first floor plan"). List multiple types with semicolons.
-- Description: Include a description of physical appearance, architectural content, style, decorative elements, and historical context. Make sure that every sentence is specific to this drawing. 
-- Format Media: Full descriptive phrase for the drawing medium and support (e.g., "ink on linen", "blueprint", "pencil on vellum"). Include condition notes if notable.
-- Medium: The applied medium or material (e.g., ink, graphite, pencil, watercolor, blueprint). Semicolons for multiple. This will be used for Getty AAT lookup.
-- Support: The physical substrate or support material (e.g., linen, vellum, tracing paper, cardboard, paper). Semicolons for multiple. This will be used for Getty AAT lookup.
+- Description: Include a short description of this drawing. Do not include information that is inferred, only what is clearly shown. Make sure that every sentence is specific to this drawing. 
 - Topics: Building types, materials, architectural features, decorative elements (max 10, separated by semicolons). These will be used as keywords to search for controlled vocabulary terms via API.
 - Date On Drawing: Dates from title block, stamps, annotations. Use [no date] if none visible.
-- Sheet Info: Sheet number, project number, scale notation.
-- Named Entities: Non-geographic entities as "Name (Type)" - types: Architect, Firm, Person, Building, Organization, etc.
+- Sheet Info: Sheet number.
+- Named Entities: Entities that the drawing depicts or references — NOT the people or firms who created it (those belong in Contributors). Include: named buildings or structures shown or referenced; organizations such as clients, contractors, or manufacturers named in the drawing content; individuals named in the content who are not creators of the drawing (e.g., a client, a building's namesake, someone credited in an inscription). Format as "Name (Type)". Types: Building, Organization, Person. Do NOT repeat Contributors here.
 - Geographic Entities: Locations as "City--State (City)", "State (State)", or "Country (Country)". Use full names.
 - Content Warning: Make a note of biased language/terminology, culturally sensitive material, or offensive or harmful language or imagery. Write 'None' if there is nothing of note.  Another archivist will assess how to handle the issue, your job is only to flag for review.
 {cls.UNCERTAINTY_INSTRUCTIONS}
@@ -58,13 +55,10 @@ Title: First Floor Plan - Smith Residence
 Contributors: John Smith (Architect); ABC Engineering (Structural Engineer)
 Genre: floor plan
 Description: Floor plan in ink on tracing paper showing a four-bedroom residence with central hallway, formal living and dining rooms at front.
-Format Media: ink on tracing paper
-Medium: ink
-Support: tracing paper
 Topics: residential architecture; floor plans; single-family homes
 Date On Drawing: March 1925
 Sheet Info: Sheet 3 of 12
-Named Entities: John Smith (Architect); ABC Engineering (Firm)
+Named Entities: Smith Residence (Building)
 Geographic Entities: Austin--Texas (City); Texas (State)
 Content Warning: None"""
 
@@ -144,7 +138,6 @@ DECISION RULES:
 - Do not force selections based on partial word matches
 - Better to select fewer accurate terms than many irrelevant ones
 - If multiple terms are exactly the same, select the one with the best source (Getty AAT > LCSH > Getty TGN > FAST)
-- For Format/Media terms (medium and support materials), Getty AAT is the authoritative source — prefer Getty AAT terms over all others
 
 You will be provided with drawing metadata and available vocabulary terms organized by topic. For each relevant topic, select the most appropriate term that accurately represents the drawing content.
 
