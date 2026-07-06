@@ -557,36 +557,67 @@ class FASTTermFinder:
         """Find FAST geographic terms for multiple entities."""
         if not geographic_entities:
             return {}
-            
+
         results = {}
-        
+
         for entity in geographic_entities:
             if not entity or entity.strip() == "":
                 continue
-                
+
             entity = entity.strip()
-            
+
             # Skip if already processed
             if entity in results:
                 continue
-            
-            # Extract the searchable part by removing the type in parentheses
-            # e.g., "Baltimore--Maryland (City)" becomes "Baltimore--Maryland"
+
+            # Strip parenthetical qualifier, e.g. "Baltimore--Maryland (City)" → "Baltimore--Maryland"
             search_term = entity
             if '(' in entity and entity.endswith(')'):
-                # Find the last opening parenthesis and remove everything from there
                 paren_index = entity.rfind('(')
                 if paren_index > 0:
                     search_term = entity[:paren_index].strip()
-                        
+
             # Search for geographic terms using the cleaned search term - LIMITED TO 1 TERM
-            fast_results = self.search_geographic(search_term, entity)[:self.max_geo_results]  
+            fast_results = self.search_geographic(search_term, entity)[:self.max_geo_results]
             results[entity] = fast_results  # Store under the original entity name
-            
+
             if fast_results:
-                print(f"   Found FAST geographic term for '{entity}'")  
+                print(f"   Found FAST geographic term for '{entity}'")
             else:
                 print(f"   No FAST geographic term found for '{entity}'")
+
+        return results
+
+    def find_contributor_terms(self, contributors: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        """Find FAST name authority terms for contributor names."""
+        if not contributors:
+            return {}
+
+        results = {}
+
+        for name in contributors:
+            if not name or not name.strip():
+                continue
+
+            name = name.strip()
+            if name in results:
+                continue
+
+            # Strip parenthetical qualifier, e.g. "Smith, John (architect)" → "Smith, John"
+            search_term = name
+            if '(' in name and name.endswith(')'):
+                paren_index = name.rfind('(')
+                if paren_index > 0:
+                    search_term = name[:paren_index].strip()
+
+            # Reuse the existing search, limit to 1 result
+            fast_results = self.search(search_term, name)[:1]
+            results[name] = fast_results
+
+            if fast_results:
+                print(f"   Found FAST name authority for '{name}'")
+            else:
+                print(f"   No FAST name authority found for '{name}'")
 
         return results
 
@@ -1173,6 +1204,39 @@ class ArchitecturalDrawingsEnhancer:
                 print(f"     No AAT terms found")
         return genre_to_terms_json
 
+    def extract_contributors(self) -> List[str]:
+        """Extract all unique contributor names from JSON data."""
+        all_names = set()
+        data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+        for item in data_items:
+            if 'analysis' in item:
+                for contrib in item['analysis'].get('contributors', []):
+                    if isinstance(contrib, dict):
+                        name = contrib.get('name', '').strip()
+                    elif isinstance(contrib, str):
+                        name = contrib.strip()
+                    else:
+                        continue
+                    if name:
+                        all_names.add(name)
+        return sorted(list(all_names))
+
+    def process_contributor_lookup(self, contributor_names: List[str]) -> Dict[str, List[Dict]]:
+        """Look up contributor names in FAST name authority."""
+        if not contributor_names:
+            return {}
+
+        contributor_to_terms = {}
+        print(f"\nProcessing contributor FAST lookup for {len(contributor_names)} contributor(s)...")
+
+        fast_results = self.fast_finder.find_contributor_terms(contributor_names)
+
+        for name, terms in fast_results.items():
+            formatted = self.format_results_for_json(terms)
+            contributor_to_terms[name] = formatted
+
+        return contributor_to_terms
+
     def extract_medium_support_terms(self) -> tuple[List[str], List[str]]:
         """Extract all unique medium and support terms from the JSON data."""
         all_medium_terms = set()
@@ -1495,7 +1559,8 @@ class ArchitecturalDrawingsEnhancer:
                     chronological_to_terms_json: Dict[str, List[Dict[str, str]]],
                     medium_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
                     support_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
-                    genre_to_terms_json: Dict[str, List[Dict[str, str]]] = None) -> bool:
+                    genre_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
+                    contributor_to_terms_json: Dict[str, List[Dict[str, str]]] = None) -> bool:
         """Add vocabulary search results to JSON file with topic-to-terms, geographic-to-terms, chronological terms, medium/support mapping, and genre mapping."""
         try:
             # Skip the last item if it's API stats
@@ -1579,11 +1644,25 @@ class ArchitecturalDrawingsEnhancer:
                                 if term and term in genre_to_terms_json and genre_to_terms_json[term]:
                                     genre_vocab_results[term] = genre_to_terms_json[term].copy()
 
+                    # Build contributor vocabulary search results for this item
+                    contributor_vocab_results = {}
+                    if contributor_to_terms_json:
+                        for contrib in item['analysis'].get('contributors', []):
+                            if isinstance(contrib, dict):
+                                name = contrib.get('name', '').strip()
+                            elif isinstance(contrib, str):
+                                name = contrib.strip()
+                            else:
+                                continue
+                            if name and name in contributor_to_terms_json and contributor_to_terms_json[name]:
+                                contributor_vocab_results[name] = contributor_to_terms_json[name].copy()
+
                     # Add all mappings to the analysis
                     item['analysis']['vocabulary_search_results'] = topic_to_terms
                     item['analysis']['geographic_vocabulary_search_results'] = geographic_to_terms
                     item['analysis']['medium_vocabulary_search_results'] = medium_vocab_results
                     item['analysis']['genre_vocabulary_search_results'] = genre_vocab_results
+                    item['analysis']['contributor_vocabulary_search_results'] = contributor_vocab_results
                     # Add chronological terms from date on drawing
                     item['analysis']['chronological_vocabulary_terms'] = item_chronological_vocab_terms
                     item['analysis']['chronological_vocabulary_search_results'] = drawing_chronological_terms
@@ -2005,17 +2084,21 @@ class ArchitecturalDrawingsEnhancer:
         # Extract genre terms for Getty AAT lookup
         genre_terms = self.extract_genre_terms()
 
+        # Extract contributor names for FAST name authority lookup
+        contributor_names = self.extract_contributors()
+
         # Extract chronological terms from actual issue dates
         chronological_terms = self.extract_all_chronological_terms()
 
-        if not subjects and not geographic_entities and not chronological_terms and not genre_terms:
-            print("No topics, geographic entities, chronological terms, or genre terms found in the data")
+        if not subjects and not geographic_entities and not chronological_terms and not genre_terms and not contributor_names:
+            print("No topics, geographic entities, chronological terms, genre terms, or contributors found in the data")
             return False
 
         print(f"Found {len(subjects)} unique topics")
         print(f"Found {len(chronological_terms)} chronological terms")
         print(f"Found {len(geographic_entities)} unique geographic entities")
         print(f"Found {len(genre_terms)} unique genre terms")
+        print(f"Found {len(contributor_names)} unique contributors")
 
         # Process multi-vocabulary lookup with comprehensive logging
         (subject_to_terms_display, subject_to_terms_json,
@@ -2027,9 +2110,13 @@ class ArchitecturalDrawingsEnhancer:
         # Process genre Getty AAT lookup
         genre_to_terms_json = self.process_genre_lookup(genre_terms)
 
+        # Process contributor FAST name authority lookup
+        contributor_to_terms_json = self.process_contributor_lookup(contributor_names)
+
         # Enhance JSON file (medium/support handled via curated list in HTML; no AI lookup needed)
         if not self.enhance_json_file(subject_to_terms_json, geographic_to_terms_json, chronological_to_terms_json,
-                                      genre_to_terms_json=genre_to_terms_json):
+                                      genre_to_terms_json=genre_to_terms_json,
+                                      contributor_to_terms_json=contributor_to_terms_json):
             return False
 
         # Create vocabulary report (uses display format for human-readable output)
@@ -2049,12 +2136,14 @@ class ArchitecturalDrawingsEnhancer:
         subjects_with_terms = sum(1 for terms in subject_to_terms_display.values() if terms)
         geo_with_terms = sum(1 for terms in geographic_to_terms_display.values() if terms)
         genre_with_terms = sum(1 for terms in genre_to_terms_json.values() if terms)
+        contrib_with_terms = sum(1 for terms in contributor_to_terms_json.values() if terms)
 
         print(f"\nSTEP 2 COMPLETE: Enhanced with vocabulary terms in {os.path.basename(self.folder_path)}")
         print(f"Updated JSON files, vocabulary report, and API logs created")
         print(f"Topics with vocabulary terms: {subjects_with_terms}/{len(subjects)}")
         print(f"Geographic entities with vocabulary terms: {geo_with_terms}/{len(geographic_entities)}")
         print(f"Genre terms with Getty AAT terms: {genre_with_terms}/{len(genre_terms)}")
+        print(f"Contributors with FAST name authority: {contrib_with_terms}/{len(contributor_names)}")
         if subjects:
             print(f"Topic success rate: {(subjects_with_terms/len(subjects)*100):.1f}%")
         if geographic_entities:

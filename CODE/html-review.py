@@ -328,10 +328,10 @@ class HTMLReviewBuilder:
         .add-btn:hover { background: #229954; }
 
         .contributor-item {
-            display: grid;
-            grid-template-columns: 1fr 150px 40px;
+            display: flex;
             gap: 10px;
             margin-bottom: 8px;
+            align-items: center;
         }
 
         .section-header {
@@ -856,8 +856,8 @@ class HTMLReviewBuilder:
             const div = document.createElement('div');
             div.className = 'contributor-item';
             div.innerHTML = `
-                <input type="text" class="field-input contrib-name" placeholder="Name" onchange="saveContributors(${{recordId}})">
-                <input type="text" class="field-input contrib-role" placeholder="Role" onchange="saveContributors(${{recordId}})">
+                <input type="text" class="field-input contrib-name" placeholder="Name" style="flex:1;" onchange="saveContributors(${{recordId}})">
+                <input type="text" class="field-input contrib-role" placeholder="Role" style="width:150px;flex-shrink:0;" onchange="saveContributors(${{recordId}})">
                 <button class="remove-btn" onclick="this.parentElement.remove(); saveContributors(${{recordId}})">X</button>
             `;
             container.appendChild(div);
@@ -1421,18 +1421,35 @@ class HTMLReviewBuilder:
         document.addEventListener('DOMContentLoaded', restoreState);
         """
 
-    def generate_contributors_html(self, contributors, record_id):
-        """Generate HTML for contributors list."""
+    def generate_contributors_html(self, contributors, record_id, contributor_vocab_results=None):
+        """Generate HTML for contributors list with optional FAST name authority URI links."""
+        if contributor_vocab_results is None:
+            contributor_vocab_results = {}
+
         html = f'<div id="contributors-{record_id}" class="list-field">'
 
         if contributors:
             for contrib in contributors:
-                name = self.escape_html(contrib.get('name', ''))
-                role = self.escape_html(contrib.get('role', ''))
+                name_raw = contrib.get('name', '')
+                role_raw = contrib.get('role', '')
+                name = self.escape_html(name_raw)
+                role = self.escape_html(role_raw)
+
+                # Look up FAST name authority URI for this contributor
+                vocab_terms = contributor_vocab_results.get(name_raw, [])
+                uri_html = ''
+                if vocab_terms:
+                    term = vocab_terms[0]
+                    uri = term.get('uri', '')
+                    label = self.escape_html(term.get('label', ''))
+                    if uri:
+                        uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{label} — {uri}">FAST</a>'
+
                 html += f'''
                 <div class="contributor-item">
-                    <input type="text" class="field-input contrib-name" value="{name}" placeholder="Name" onchange="saveContributors({record_id})">
-                    <input type="text" class="field-input contrib-role" value="{role}" placeholder="Role" onchange="saveContributors({record_id})">
+                    <input type="text" class="field-input contrib-name" value="{name}" placeholder="Name" style="flex:1;" onchange="saveContributors({record_id})">
+                    <input type="text" class="field-input contrib-role" value="{role}" placeholder="Role" style="width:150px;flex-shrink:0;" onchange="saveContributors({record_id})">
+                    {uri_html}
                     <button class="remove-btn" onclick="this.parentElement.remove(); saveContributors({record_id})">X</button>
                 </div>'''
 
@@ -1458,6 +1475,40 @@ class HTMLReviewBuilder:
         html += f'''
             </div>
             <button class="add-btn" onclick="addListItem({record_id}, '{field_name}')">+ Add Item</button>
+        '''
+        return html
+
+    def generate_geographic_field_html(self, entities, record_id, geo_vocab_results=None):
+        """Generate HTML for geographic entities list with FAST URI links when available."""
+        if geo_vocab_results is None:
+            geo_vocab_results = {}
+
+        html = f'<div id="geographic_entities-{record_id}" class="list-field">'
+
+        if entities:
+            for entity in entities:
+                entity_str = entity if isinstance(entity, str) else str(entity)
+                value = self.escape_html(entity_str)
+
+                vocab_terms = geo_vocab_results.get(entity_str, [])
+                uri_html = ''
+                if vocab_terms:
+                    term = vocab_terms[0]
+                    uri = term.get('uri', '')
+                    label = self.escape_html(term.get('label', ''))
+                    if uri:
+                        uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{label} — {uri}">FAST</a>'
+
+                html += f'''
+                <div class="list-item">
+                    <input type="text" class="field-input" value="{value}" placeholder="Location..." onchange="saveListField({record_id}, \'geographic_entities\')">
+                    {uri_html}
+                    <button class="remove-btn" onclick="this.parentElement.remove(); saveListField({record_id}, \'geographic_entities\')">X</button>
+                </div>'''
+
+        html += f'''
+            </div>
+            <button class="add-btn" onclick="addListItem({record_id}, \'geographic_entities\')">+ Add Item</button>
         '''
         return html
 
@@ -1912,7 +1963,8 @@ class HTMLReviewBuilder:
         # Contributors
         html += '<div class="field-group">'
         html += '<div class="field-label">Contributors</div>'
-        html += self.generate_contributors_html(analysis.get('contributors', []), global_id)
+        contributor_vocab_results = analysis.get('contributor_vocabulary_search_results', {})
+        html += self.generate_contributors_html(analysis.get('contributors', []), global_id, contributor_vocab_results)
         html += '</div>'
 
         # Named Entities
@@ -1924,7 +1976,8 @@ class HTMLReviewBuilder:
         # Geographic Entities
         html += '<div class="field-group">'
         html += '<div class="field-label">Geographic Entities</div>'
-        html += self.generate_list_field_html(analysis.get('geographic_entities', []), global_id, 'geographic_entities', 'Location...')
+        geo_vocab_results = analysis.get('geographic_vocabulary_search_results', {})
+        html += self.generate_geographic_field_html(analysis.get('geographic_entities', []), global_id, geo_vocab_results)
         html += '</div>'
 
         # Close metadata section
