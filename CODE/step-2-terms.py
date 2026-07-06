@@ -1,4 +1,4 @@
-# Controlled Vocabulary API querying - LCSH, FAST, Getty AAT/TGN Subject Headings
+# Controlled Vocabulary API querying - LCSH, FAST, Getty AAT Subject Headings; FAST Geographic for geographic entities
 
 import os
 import json
@@ -119,8 +119,7 @@ class APIStatsTracker:
             'LCSH': {'requests': 0, 'successful': 0, 'failed': 0, 'total_time': 0, 'terms_found': 0, 'cache_hits': 0},
             'FAST': {'requests': 0, 'successful': 0, 'failed': 0, 'total_time': 0, 'terms_found': 0, 'cache_hits': 0},
             'FAST Geographic': {'requests': 0, 'successful': 0, 'failed': 0, 'total_time': 0, 'terms_found': 0, 'cache_hits': 0},
-            'Getty AAT': {'requests': 0, 'successful': 0, 'failed': 0, 'total_time': 0, 'terms_found': 0, 'cache_hits': 0},
-            'Getty TGN': {'requests': 0, 'successful': 0, 'failed': 0, 'total_time': 0, 'terms_found': 0, 'cache_hits': 0}
+            'Getty AAT': {'requests': 0, 'successful': 0, 'failed': 0, 'total_time': 0, 'terms_found': 0, 'cache_hits': 0}
         }
         self.topic_results = {}
         self.geographic_results = {}  # Track geographic results separately
@@ -908,17 +907,10 @@ class GettyTermFinder:
             # Search AAT and TGN
             all_results = []
             
-            # Search AAT (Art & Architecture Thesaurus)
+            # Search AAT (Art & Architecture Thesaurus) only
             aat_results = self.search_aat(topic, topic)
             all_results.extend(aat_results)
-            
-            # Search TGN (Thesaurus of Geographic Names) - if we have room
-            if len(all_results) < self.max_results:
-                tgn_results = self.search_tgn(topic, topic)
-                # Add TGN results up to the limit
-                remaining_slots = self.max_results - len(all_results)
-                all_results.extend(tgn_results[:remaining_slots])
-            
+
             # LIMIT TO 3 TOTAL
             results[topic] = all_results[:self.max_results]
             
@@ -1085,7 +1077,7 @@ class ArchitecturalDrawingsEnhancer:
         self.json_folder = None
         self.max_terms_per_vocabulary = 3  # For topics
         self.max_geo_terms_per_vocabulary = 1  # For geographic entities
-        self.max_total_terms = 12  # 3 terms × 4 vocabularies = 12 max total for topics
+        self.max_total_terms = 9  # 3 terms × 3 vocabularies (LCSH, FAST, Getty AAT) = 9 max total for topics
 
     def detect_workflow_type(self) -> bool:
         """Detect drawings workflow folder."""
@@ -1125,8 +1117,8 @@ class ArchitecturalDrawingsEnhancer:
 
         for item in data_items:
             if 'analysis' in item:
-                # Extract subjects (drawings workflow uses 'subjects' field)
-                subjects_data = item['analysis'].get('subjects', [])
+                # Extract topics (the AI-identified keyword topics for vocab lookup)
+                subjects_data = item['analysis'].get('topics', [])
                 if isinstance(subjects_data, list):
                     for subject in subjects_data:
                         if subject and subject.strip():
@@ -1485,11 +1477,11 @@ class ArchitecturalDrawingsEnhancer:
             
             for item in data_items:
                 if 'analysis' in item:
-                    # Get subjects for this item (drawings workflow uses 'subjects' field)
-                    subjects_data = item['analysis'].get('subjects', [])
+                    # Get topics for this item
+                    subjects_data = item['analysis'].get('topics', [])
                     geographic_entities = item['analysis'].get('geographic_entities', [])
 
-                    # Normalize subjects to list format and strip whitespace
+                    # Normalize topics to list format and strip whitespace
                     if isinstance(subjects_data, str):
                         subjects = [s.strip() for s in subjects_data.split(',') if s.strip()]
                     elif isinstance(subjects_data, list):
@@ -1601,8 +1593,8 @@ class ArchitecturalDrawingsEnhancer:
                     folder_name = item.get('folder', 'Unknown')
                     page_to_folder[page_number] = folder_name
 
-                    # Get subjects
-                    subjects_data = item['analysis'].get('subjects', [])
+                    # Get topics
+                    subjects_data = item['analysis'].get('topics', [])
                     if isinstance(subjects_data, str):
                         subjects = [s.strip() for s in subjects_data.split(',') if s.strip()]
                     elif isinstance(subjects_data, list):
@@ -1644,7 +1636,6 @@ class ArchitecturalDrawingsEnhancer:
                 f.write("- LCSH (Library of Congress Subject Headings)\n")
                 f.write("- FAST (Faceted Application of Subject Terminology)\n")
                 f.write("- Getty AAT (Art & Architecture Thesaurus)\n")
-                f.write("- Getty TGN (Thesaurus of Geographic Names)\n")
                 f.write("FOR GEOGRAPHIC ENTITIES:\n")
                 f.write("- FAST Geographic (Faceted Application of Subject Terminology - Geographic)\n")
                 # NEW: Add chronological section
@@ -1687,7 +1678,7 @@ class ArchitecturalDrawingsEnhancer:
                     f.write("- Chronological success rate: 0%\n\n")
                 
                 # Count terms by source for topics
-                topic_source_counts = {'LCSH': 0, 'FAST': 0, 'Getty AAT': 0, 'Getty TGN': 0}
+                topic_source_counts = {'LCSH': 0, 'FAST': 0, 'Getty AAT': 0}
                 for terms_str in subject_to_terms.values():
                     if terms_str:
                         for term in terms_str.split(';'):
@@ -1697,8 +1688,6 @@ class ArchitecturalDrawingsEnhancer:
                                 topic_source_counts['FAST'] += 1
                             elif '[Getty AAT]' in term:
                                 topic_source_counts['Getty AAT'] += 1
-                            elif '[Getty TGN]' in term:
-                                topic_source_counts['Getty TGN'] += 1
                 
                 # Count terms by source for geographic entities
                 geo_source_counts = {'FAST Geographic': 0}

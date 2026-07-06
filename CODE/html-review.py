@@ -785,52 +785,52 @@ class HTMLReviewBuilder:
             updateRecordStatus(recordId);
         }}
 
-        function rejectSubjectWithCascade(recordId, subjectTermId, subjectText) {{
-            // First, reject the subject itself
-            setTermStatus(recordId, subjectTermId, 'rejected');
+        function rejectTopicWithCascade(recordId, topicTermId, topicText) {{
+            // First, reject the topic itself
+            setTermStatus(recordId, topicTermId, 'rejected');
 
-            // Then, cascade-reject all subject headings derived from this subject
+            // Then, cascade-reject all subject headings derived from this topic
             const record = document.getElementById('record-' + recordId);
             if (!record) return;
 
-            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + subjectText + '"]');
+            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + topicText + '"]');
             derivedHeadings.forEach(headingEl => {{
                 const headingTermId = headingEl.id.replace('term-' + recordId + '-', '');
                 // Mark as cascade-rejected (not explicitly rejected)
-                setTermStatus(recordId, headingTermId, subjectText, true);
+                setTermStatus(recordId, headingTermId, topicText, true);
             }});
 
             // Store the cascade rejection mapping
             const cascadeMap = getStorage('cascade-rejections-' + recordId, {{}});
-            cascadeMap[subjectText] = derivedHeadings.length;
+            cascadeMap[topicText] = derivedHeadings.length;
             setStorage('cascade-rejections-' + recordId, cascadeMap);
         }}
 
-        function restoreSubjectWithCascade(recordId, subjectTermId, subjectText) {{
-            // First, restore the subject itself
-            setTermStatus(recordId, subjectTermId, 'approved');
+        function restoreTopicWithCascade(recordId, topicTermId, topicText) {{
+            // First, restore the topic itself
+            setTermStatus(recordId, topicTermId, 'approved');
 
-            // Then, restore all subject headings that were cascade-rejected from this subject
+            // Then, restore all subject headings that were cascade-rejected from this topic
             const record = document.getElementById('record-' + recordId);
             if (!record) return;
 
             const termDecisions = getStorage('terms-' + recordId, {{}});
-            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + subjectText + '"]');
+            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + topicText + '"]');
 
             derivedHeadings.forEach(headingEl => {{
                 const headingTermId = headingEl.id.replace('term-' + recordId + '-', '');
                 const decision = termDecisions[headingTermId];
 
-                // Only restore if it was cascade-rejected from this specific subject
+                // Only restore if it was cascade-rejected from this specific topic
                 // (not if the user explicitly rejected it)
-                if (decision && typeof decision === 'object' && decision.status === 'cascade_rejected' && decision.cascadeFrom === subjectText) {{
+                if (decision && typeof decision === 'object' && decision.status === 'cascade_rejected' && decision.cascadeFrom === topicText) {{
                     setTermStatus(recordId, headingTermId, 'approved');
                 }}
             }});
 
             // Remove from cascade rejection mapping
             const cascadeMap = getStorage('cascade-rejections-' + recordId, {{}});
-            delete cascadeMap[subjectText];
+            delete cascadeMap[topicText];
             setStorage('cascade-rejections-' + recordId, cascadeMap);
         }}
 
@@ -845,7 +845,7 @@ class HTMLReviewBuilder:
                 setTermStatus(recordId, termId, 'approved');
             }});
 
-            // Also accept all AI subjects
+            // Also accept all AI topics
             const subjectTerms = record.querySelectorAll('.vocab-term[data-default="approved"]:not([data-group])');
             subjectTerms.forEach(termEl => {{
                 const termId = termEl.id.replace('term-' + recordId + '-', '');
@@ -853,29 +853,29 @@ class HTMLReviewBuilder:
             }});
         }}
 
-        function addNewSubject(recordId) {{
-            const input = document.getElementById('new-subject-' + recordId);
+        function addNewTopic(recordId) {{
+            const input = document.getElementById('new-topic-' + recordId);
             const subject = input.value.trim();
 
             if (!subject) {{
-                alert('Please enter a subject');
+                alert('Please enter a topic');
                 return;
             }}
 
-            // Store in custom subjects
-            const customSubjects = getStorage('custom-subjects-' + recordId, []);
-            const subjectId = 'newsubject-' + Date.now();
+            // Store in custom topics
+            const customSubjects = getStorage('custom-topics-' + recordId, []);
+            const subjectId = 'newtopic-' + Date.now();
             customSubjects.push({{ id: subjectId, label: subject }});
-            setStorage('custom-subjects-' + recordId, customSubjects);
+            setStorage('custom-topics-' + recordId, customSubjects);
 
-            // Find the subjects vocab-group and add before the add form
-            const addForm = input.closest('.add-subject-form');
+            // Find the topics vocab-group and add before the add form
+            const addForm = input.closest('.add-topic-form');
             const subjectHtml = `
-                <div class="vocab-term approved" id="term-${{recordId}}-${{subjectId}}" data-default="approved" data-category="subject">
+                <div class="vocab-term approved" id="term-${{recordId}}-${{subjectId}}" data-default="approved" data-category="topic">
                     <span class="vocab-term-label">${{subject}}</span>
                     <span class="vocab-term-source">Manual</span>
                     <div class="term-actions">
-                        <button class="term-btn reject" onclick="removeCustomSubject(${{recordId}}, '${{subjectId}}')">Remove</button>
+                        <button class="term-btn reject" onclick="removeCustomTopic(${{recordId}}, '${{subjectId}}')">Remove</button>
                     </div>
                 </div>
             `;
@@ -886,10 +886,10 @@ class HTMLReviewBuilder:
             updateRecordStatus(recordId);
         }}
 
-        function removeCustomSubject(recordId, subjectId) {{
-            let customSubjects = getStorage('custom-subjects-' + recordId, []);
+        function removeCustomTopic(recordId, subjectId) {{
+            let customSubjects = getStorage('custom-topics-' + recordId, []);
             customSubjects = customSubjects.filter(s => s.id !== subjectId);
-            setStorage('custom-subjects-' + recordId, customSubjects);
+            setStorage('custom-topics-' + recordId, customSubjects);
 
             const subjectEl = document.getElementById('term-' + recordId + '-' + subjectId);
             if (subjectEl) subjectEl.remove();
@@ -1031,7 +1031,7 @@ class HTMLReviewBuilder:
                 // Restore field edits
                 const edits = getStorage('edits-' + recordId, {{}});
                 for (const [field, data] of Object.entries(edits)) {{
-                    if (field === 'contributors' || field === 'named_entities' || field === 'geographic_entities' || field === 'subjects') {{
+                    if (field === 'contributors' || field === 'named_entities' || field === 'geographic_entities' || field === 'topics') {{
                         // List fields handled separately
                         continue;
                     }}
@@ -1127,11 +1127,11 @@ class HTMLReviewBuilder:
                 const notes = getStorage('notes-' + i, '');
                 const termDecisions = getStorage('terms-' + i, {{}});
                 const customTerms = getStorage('custom-terms-' + i, []);
-                const customSubjects = getStorage('custom-subjects-' + i, []);
+                const customTopics = getStorage('custom-topics-' + i, []);
                 const recordData = getStorage('record-data-' + i, {{}});
 
                 // Only include records that have been reviewed or have edits
-                if (reviewed || Object.keys(edits).length > 0 || Object.keys(termDecisions).length > 0 || customTerms.length > 0 || customSubjects.length > 0) {{
+                if (reviewed || Object.keys(edits).length > 0 || Object.keys(termDecisions).length > 0 || customTerms.length > 0 || customTopics.length > 0) {{
                     decisions.push({{
                         record_id: i,
                         image_path: recordData.image_path || '',
@@ -1140,7 +1140,7 @@ class HTMLReviewBuilder:
                         edits: edits,
                         term_decisions: termDecisions,
                         custom_terms: customTerms,
-                        custom_subjects: customSubjects,
+                        custom_topics: customTopics,
                         archivist_notes: notes
                     }});
                 }}
@@ -1231,48 +1231,48 @@ class HTMLReviewBuilder:
         """Generate HTML for vocabulary term review section.
 
         Two separate sections:
-        1. SUBJECTS (AI-generated, no URIs) - auto-accepted, can reject or add new
+        1. TOPICS (AI-generated, no URIs) - auto-accepted, can reject or add new
         2. SUBJECT HEADINGS (controlled vocabulary with URIs):
            - Selected: auto-accepted, can reject
            - Other: opt-in only
 
-        Cascade rejection: When a subject is rejected, all subject headings derived
-        from that subject are automatically cascade-rejected (shown visually).
+        Cascade rejection: When a topic is rejected, all subject headings derived
+        from that topic are automatically cascade-rejected (shown visually).
         """
         html = '<div class="vocab-section">'
 
-        # Build a mapping of subject text to index for cascade rejection tracking
-        subjects = analysis.get('subjects', [])
+        # Build a mapping of topic text to index for cascade rejection tracking
+        subjects = analysis.get('topics', [])
         subject_to_index = {subj: i for i, subj in enumerate(subjects)}
 
         # ==========================================
-        # SECTION 1: SUBJECTS (AI-generated terms)
+        # SECTION 1: TOPICS (AI-generated terms)
         # ==========================================
-        html += '<div class="section-header">Subjects</div>'
-        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">AI-generated subject terms. Rejecting a subject will also reject its derived subject headings below.</p>'
+        html += '<div class="section-header">Topics</div>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">AI-generated topic terms. Rejecting a topic will also reject its derived subject headings below.</p>'
 
         html += '<div class="vocab-group">'
         if subjects:
             for i, subject in enumerate(subjects):
-                term_id = f"subject-{i}"
+                term_id = f"topic-{i}"
                 html += f'''
-                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-category="subject" data-subject-text="{self.escape_html(subject)}">
+                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-category="topic" data-topic-text="{self.escape_html(subject)}">
                     <span class="vocab-term-label">{self.escape_html(subject)}</span>
                     <span class="vocab-term-source">AI</span>
                     <div class="term-actions">
-                        <button class="term-btn reject" onclick="rejectSubjectWithCascade({record_id}, '{term_id}', '{self.escape_js_string(subject)}')">Reject</button>
-                        <button class="term-btn approve" onclick="restoreSubjectWithCascade({record_id}, '{term_id}', '{self.escape_js_string(subject)}')" style="display:none;">Restore</button>
+                        <button class="term-btn reject" onclick="rejectTopicWithCascade({record_id}, '{term_id}', '{self.escape_js_string(subject)}')">Reject</button>
+                        <button class="term-btn approve" onclick="restoreTopicWithCascade({record_id}, '{term_id}', '{self.escape_js_string(subject)}')" style="display:none;">Restore</button>
                     </div>
                 </div>'''
         else:
-            html += '<p style="color: #999; font-style: italic;">No AI subjects found</p>'
+            html += '<p style="color: #999; font-style: italic;">No AI topics found</p>'
 
-        # Add new subject form
+        # Add new topic form
         html += f'''
-        <div class="add-subject-form" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd;">
+        <div class="add-topic-form" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd;">
             <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="new-subject-{record_id}" placeholder="Add new subject..." style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                <button class="add-btn" onclick="addNewSubject({record_id})">+ Add Subject</button>
+                <input type="text" id="new-topic-{record_id}" placeholder="Add new topic..." style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <button class="add-btn" onclick="addNewTopic({record_id})">+ Add Topic</button>
             </div>
         </div>
         '''
@@ -1282,7 +1282,7 @@ class HTMLReviewBuilder:
         # SECTION 2: SUBJECT HEADINGS (controlled vocabulary)
         # ==========================================
         html += '<div class="section-header" style="margin-top: 25px;">Subject Headings</div>'
-        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Controlled vocabulary terms (LCSH, FAST, Getty) with URIs/permalinks. Derived from subjects above.</p>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Controlled vocabulary terms (LCSH, FAST, Getty) with URIs/permalinks. Derived from topics above.</p>'
 
         # Selected Subject Headings - default to APPROVED (opt-out)
         final_terms = analysis.get('final_selected_terms', [])
@@ -1299,17 +1299,17 @@ class HTMLReviewBuilder:
                 source_class = source.lower().replace(' ', '').replace('getty', '')
                 uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
 
-                # Get the derived_from_subject for cascade rejection tracking
-                derived_from = term.get('derived_from_subject', '')
+                # Get the derived_from_topic for cascade rejection tracking
+                derived_from = term.get('derived_from_topic', '')
                 derived_from_escaped = self.escape_html(derived_from)
                 derived_from_js = self.escape_js_string(derived_from)
 
-                # Find the subject index for this heading
+                # Find the topic index for this heading
                 subject_index = subject_to_index.get(derived_from, -1)
                 derived_attr = f'data-derived-from="{derived_from_escaped}" data-derived-from-index="{subject_index}"' if derived_from else ''
 
-                # Show which subject this heading was derived from
-                derived_badge = f'<span class="derived-from-badge" title="Derived from subject: {derived_from_escaped}">from: {derived_from_escaped[:20]}{"..." if len(derived_from) > 20 else ""}</span>' if derived_from else ''
+                # Show which topic this heading was derived from
+                derived_badge = f'<span class="derived-from-badge" title="Derived from topic: {derived_from_escaped}">from: {derived_from_escaped[:20]}{"..." if len(derived_from) > 20 else ""}</span>' if derived_from else ''
 
                 html += f'''
                 <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="selected" data-category="heading" {derived_attr}>
@@ -1321,7 +1321,7 @@ class HTMLReviewBuilder:
                         <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')">Reject</button>
                         <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')" style="display:none;">Restore</button>
                     </div>
-                    <span class="cascade-indicator" style="display:none; font-size: 11px; color: #dc3545; margin-left: 10px;">(auto-rejected: parent subject rejected)</span>
+                    <span class="cascade-indicator" style="display:none; font-size: 11px; color: #dc3545; margin-left: 10px;">(auto-rejected: parent topic rejected)</span>
                 </div>'''
             html += '</div>'
         else:
@@ -1406,7 +1406,7 @@ class HTMLReviewBuilder:
                 source = term.get('source', 'Unknown')
                 source_class = source.lower().replace(' ', '').replace('getty', '')
                 uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
-                derived_from = term.get('derived_from_subject', '')
+                derived_from = term.get('derived_from_topic', '')
                 derived_badge = f'<span class="derived-from-badge" title="Derived from: {self.escape_html(derived_from)}">{self.escape_html(derived_from[:25])}{"..." if len(derived_from) > 25 else ""}</span>' if derived_from else ''
                 html += f'''
                 <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="medium-selected" data-category="medium-term">

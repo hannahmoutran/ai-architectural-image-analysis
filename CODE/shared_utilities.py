@@ -117,17 +117,11 @@ def postprocess_api_response(response_data):
         response_data['geographicEntities'] = [entity for entity in response_data['geographicEntities'] 
                                              if len(entity) > 1 or not entity.isalnum()]
     
-    # Handle topics field (also ensure it's a list)
+    # Handle topics field (normalize subjects → topics for backward compat)
     if 'topics' in response_data:
         response_data['topics'] = ensure_list(response_data['topics'])
-    
-    # Handle subjects field - ensure it's a list but keep as 'subjects'
-    if 'subjects' in response_data:
-        response_data['subjects'] = ensure_list(response_data['subjects'])
-
-    # Handle topics field variations - for scripts that use 'topics' instead of 'subjects'
-    if 'topics' in response_data:
-        response_data['topics'] = ensure_list(response_data['topics'])
+    elif 'subjects' in response_data:
+        response_data['topics'] = ensure_list(response_data.pop('subjects'))
     elif 'subjectHeadings' in response_data:
         response_data['topics'] = ensure_list(response_data.pop('subjectHeadings'))
     

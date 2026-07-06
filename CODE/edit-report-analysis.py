@@ -76,16 +76,16 @@ GLOSSARY = [
      "Definition": "Pooled: (total chars added + total chars deleted) ÷ max(total original, total edited) character volume. Measures raw rewrite volume regardless of net change direction. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "List Item Retention (%)", "Direction": "Higher = better",
      "Definition": "Pooled: (total AI list items kept or corrected by archivist / total AI list items across all records) × 100. Every record counts equally."},
-    {"Tab": "Model Overview", "Metric": "Subject Acceptance (%)", "Direction": "Higher = better",
-     "Definition": "Pooled: (total AI subject terms approved / total AI subject terms suggested across all records) × 100. Every record counts equally."},
+    {"Tab": "Model Overview", "Metric": "Topic Acceptance (%)", "Direction": "Higher = better",
+     "Definition": "Pooled: (total AI topics approved / total AI topics suggested across all records) × 100. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Heading Approval (%)", "Direction": "Higher = better",
      "Definition": "Pooled: (total AI LCSH/FAST headings approved / total AI headings suggested across all records) × 100. A term can be right while its full heading form still needs adjustment."},
     {"Tab": "Model Overview", "Metric": "Archivist Addition Rate (%)", "Direction": "Lower = better",
      "Definition": "Pooled: (records where archivist selected ≥1 vocab term not suggested by AI / total records reviewed) × 100. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Avg Custom Terms Added", "Direction": "Lower = better",
      "Definition": "Pooled: total vocab terms added from search results / total records reviewed. Every record counts equally."},
-    {"Tab": "Model Overview", "Metric": "Avg Custom Subjects Added", "Direction": "Lower = better",
-     "Definition": "Pooled: total subject terms written in manually / total records reviewed. Every record counts equally."},
+    {"Tab": "Model Overview", "Metric": "Avg Custom Topics Added", "Direction": "Lower = better",
+     "Definition": "Pooled: total topic terms written in manually / total records reviewed. Every record counts equally."},
     {"Tab": "Model Overview", "Metric": "Collections", "Direction": "—",
      "Definition": "Count of distinct archival collections in this model's reports."},
     {"Tab": "Model Overview", "Metric": "Evaluators", "Direction": "—",
@@ -117,8 +117,8 @@ GLOSSARY = [
      "Definition": "List only. Pooled: (total items removed / total original AI items across all records) × 100. Every record counts equally."},
     {"Tab": "Task Breakdown", "Metric": "Avg Items Added Rate (%)", "Direction": "Lower = better",
      "Definition": "List only. Pooled: (total items added by archivist / total original AI items across all records) × 100. Every record counts equally."},
-    {"Tab": "Task Breakdown", "Metric": "subjects — rejection rate", "Direction": "Lower = better",
-     "Definition": "Pooled: total subjects rejected ÷ total subjects suggested across all records. Reads consistently alongside other fields (lower = better)."},
+    {"Tab": "Task Breakdown", "Metric": "topics — rejection rate", "Direction": "Lower = better",
+     "Definition": "Pooled: total topics rejected ÷ total topics suggested across all records. Reads consistently alongside other fields (lower = better)."},
     {"Tab": "Task Breakdown", "Metric": "subject headings — rejection rate", "Direction": "Lower = better",
      "Definition": "Pooled: (total AI LCSH/FAST headings not approved ÷ total AI headings suggested) × 100 across all records. A term can be correct while its full heading form still needs adjustment."},
     # ── Evaluator Behavior ────────────────────────────────────────────────────
@@ -130,16 +130,16 @@ GLOSSARY = [
      "Definition": "Pooled: (total records with no edits / total records reviewed) × 100. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Text % Changed", "Direction": "Lower = better",
      "Definition": "Pooled: total Levenshtein edit distance ÷ max(total original, total edited) character volume across all this evaluator's records. Distinguishes heavy rewriters from light editors."},
-    {"Tab": "Evaluator Behavior", "Metric": "Subject Acceptance (%)", "Direction": "Higher = less strict",
-     "Definition": "Pooled: (total AI subject terms approved / total AI subject terms suggested) × 100. Every record counts equally."},
+    {"Tab": "Evaluator Behavior", "Metric": "Topic Acceptance (%)", "Direction": "Higher = less strict",
+     "Definition": "Pooled: (total AI topics approved / total AI topics suggested) × 100. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Heading Approval (%)", "Direction": "Higher = less strict",
      "Definition": "Pooled: (total AI headings approved / total AI headings suggested) × 100. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Archivist Addition Rate (%)", "Direction": "—",
      "Definition": "Pooled: (records where ≥1 vocab term added from search results / total records reviewed) × 100. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Avg Custom Terms Added", "Direction": "—",
      "Definition": "Pooled: total vocab terms added from search results / total records reviewed. Every record counts equally."},
-    {"Tab": "Evaluator Behavior", "Metric": "Avg Custom Subjects Added", "Direction": "—",
-     "Definition": "Pooled: total subject terms written in manually / total records reviewed. Every record counts equally."},
+    {"Tab": "Evaluator Behavior", "Metric": "Avg Custom Topics Added", "Direction": "—",
+     "Definition": "Pooled: total topic terms written in manually / total records reviewed. Every record counts equally."},
     {"Tab": "Evaluator Behavior", "Metric": "Notes Written (%)", "Direction": "—",
      "Definition": "Pooled: (records where evaluator wrote a note / total records reviewed) × 100. Every record counts equally."},
     # ── Collection Difficulty ─────────────────────────────────────────────────
@@ -153,8 +153,8 @@ GLOSSARY = [
      "Definition": "Pooled: total characters inserted across all text fields ÷ total records reviewed for this collection. Every record counts equally."},
     {"Tab": "Collection Difficulty", "Metric": "Chars Deleted / Record", "Direction": "Lower = better",
      "Definition": "Pooled: total characters removed across all text fields ÷ total records reviewed for this collection. Every record counts equally."},
-    {"Tab": "Collection Difficulty", "Metric": "Subject Acceptance (%)", "Direction": "Higher = better",
-     "Definition": "Pooled: (total AI subject terms approved / total AI subject terms suggested) × 100 for this collection. Every record counts equally."},
+    {"Tab": "Collection Difficulty", "Metric": "Topic Acceptance (%)", "Direction": "Higher = better",
+     "Definition": "Pooled: (total AI topics approved / total AI topics suggested) × 100 for this collection. Every record counts equally."},
     {"Tab": "Collection Difficulty", "Metric": "Heading Approval (%)", "Direction": "Higher = better",
      "Definition": "Pooled: (total AI headings approved / total AI headings suggested) × 100 for this collection. Every record counts equally."},
     {"Tab": "Collection Difficulty", "Metric": "Best Model", "Direction": "—",
@@ -217,7 +217,7 @@ def parse_report_file(filepath: str) -> dict | None:
     scores = raw.get("average_quality_scores", {})
     tfs    = raw.get("text_fields_summary", {})
     tft    = tfs.get("text_fields_totals", {})
-    subj   = raw.get("subjects", {})
+    subj   = raw.get("topics", {})
     hdgs   = raw.get("subject_headings", {})
     adds   = hdgs.get("archivist_additions", {})
 
@@ -264,13 +264,13 @@ def parse_report_file(filepath: str) -> dict | None:
     text_original_length_total = tft.get("original_length", 0)
     text_new_length_total      = tft.get("new_length", 0)
 
-    # Subject/heading raw counts
-    subjects_total    = subj.get("total", 0)
-    subjects_accepted = subj.get("accepted", 0)
-    subjects_rejected = subj.get("rejected", 0)
-    _ai_sel           = hdgs.get("ai_selected", {})
-    headings_total    = _ai_sel.get("total", 0)
-    headings_approved = _ai_sel.get("approved", 0)
+    # Topic/heading raw counts
+    topics_total_raw    = subj.get("total", 0)
+    topics_accepted_raw = subj.get("accepted", 0)
+    topics_rejected_raw = subj.get("rejected", 0)
+    _ai_sel             = hdgs.get("ai_selected", {})
+    headings_total      = _ai_sel.get("total", 0)
+    headings_approved   = _ai_sel.get("approved", 0)
 
     # List field totals: items_kept + items_corrected = retained
     list_original_total = sum(fd.get("original_count", 0) for fd in list_fields.values())
@@ -312,15 +312,15 @@ def parse_report_file(filepath: str) -> dict | None:
         "text_new_length_total":       text_new_length_total,
         "text_chars_added_total":      tft.get("chars_added", 0),
         "text_chars_deleted_total":   tft.get("chars_deleted", 0),
-        "subjects_total":             subjects_total,
-        "subjects_accepted":          subjects_accepted,
-        "subjects_rejected":          subjects_rejected,
+        "topics_total":               topics_total_raw,
+        "topics_accepted":            topics_accepted_raw,
+        "topics_rejected":            topics_rejected_raw,
         "headings_total":             headings_total,
         "headings_approved":          headings_approved,
         "list_original_total":        list_original_total,
         "list_retained_total":        list_retained_total,
         "custom_terms_total":         adds.get("custom_terms", 0),
-        "custom_subjects_total":      subj.get("custom_added", 0),
+        "custom_topics_total":        subj.get("custom_added", 0),
         # Legacy pre-computed rates (kept for reference; not used in aggregation)
         "format_media_approval_rate": _score("format_media_approval_rate"),
         "text_fields":                text_fields,
@@ -393,7 +393,7 @@ def compute_model_overview(reports: list[dict]) -> pd.DataFrame:
         _total_new_vol   = sum(r["text_new_length_total"]       for r in reps)
         _total_vol       = max(_total_orig_vol, _total_new_vol)
         _custom_terms    = sum(r["custom_terms_total"]          for r in reps)
-        _custom_subj     = sum(r["custom_subjects_total"]       for r in reps)
+        _custom_subj     = sum(r["custom_topics_total"]         for r in reps)
         rows.append({
             "Model":                       model,
             "Edit Rate (%)":               _pool_rate(reps, "records_edited_count",       "records_reviewed"),
@@ -402,11 +402,11 @@ def compute_model_overview(reports: list[dict]) -> pd.DataFrame:
             "Chars Deleted / Record":      round(_total_deleted / _total_records, 2) if _total_records > 0 else None,
             "Edit Effort Ratio":           round(_total_effort / _total_vol, 4) if _total_vol > 0 else None,
             "List Item Retention (%)":     _pool_rate(reps, "list_retained_total",         "list_original_total"),
-            "Subject Acceptance (%)":      _pool_rate(reps, "subjects_accepted",            "subjects_total"),
+            "Topic Acceptance (%)":         _pool_rate(reps, "topics_accepted",              "topics_total"),
             "Heading Approval (%)":        _pool_rate(reps, "headings_approved",            "headings_total"),
             "Archivist Addition Rate (%)": _pool_rate(reps, "records_with_vocab_adds_count","records_reviewed"),
             "Avg Custom Terms Added":      round(_custom_terms / _total_records, 2) if _total_records > 0 else None,
-            "Avg Custom Subjects Added":   round(_custom_subj  / _total_records, 2) if _total_records > 0 else None,
+            "Avg Custom Topics Added":   round(_custom_subj  / _total_records, 2) if _total_records > 0 else None,
             "Collections":                 len({r["collection"] for r in reps}),
             "Evaluators":                  len({r["evaluator"] for r in reps}),
         })
@@ -422,7 +422,7 @@ def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
     Tab 2: One row per field. Per-model edit rates + aggregate quality columns.
     Text fields: Avg % Changed, Avg Similarity When Edited, Avg Token Sort Ratio.
     List fields: Avg Retention Rate, Avg Items Removed Rate, Avg Items Added Rate.
-    'subjects' row shows rejection rate (100 - acceptance_rate) for consistency.
+    'topics' row shows rejection rate (100 - acceptance_rate) for consistency.
     Sorted by avg edit rate descending (most-edited fields first).
     """
     models = sorted({r["model"] for r in reports})
@@ -522,13 +522,13 @@ def compute_task_breakdown(reports: list[dict]) -> pd.DataFrame:
         row["Avg Items Added Rate (%)"]   = round(tot_added    / tot_orig * 100, 1) if tot_orig > 0 else None
         rows.append(row)
 
-    # Subjects: rejection rate = 100 - acceptance_rate (lower = better, consistent with other fields)
-    subj_row: dict = {"Field": "subjects", "Field Type": "list — rejection rate"}
+    # Topics: rejection rate = 100 - acceptance_rate (lower = better, consistent with other fields)
+    subj_row: dict = {"Field": "topics", "Field Type": "list — rejection rate"}
     model_rates = []
     for model in models:
         mreps   = [r for r in reports if r["model"] == model]
-        tot_rej = sum(r["subjects_rejected"] for r in mreps)
-        tot_tot = sum(r["subjects_total"]    for r in mreps)
+        tot_rej = sum(r["topics_rejected"] for r in mreps)
+        tot_tot = sum(r["topics_total"]    for r in mreps)
         if tot_tot > 0:
             rate = round(tot_rej / tot_tot * 100, 1)
             subj_row[model] = rate
@@ -598,7 +598,7 @@ def compute_evaluator_behavior(reports: list[dict]) -> pd.DataFrame:
     for ev, reps in sorted(by_ev.items()):
         _total_records  = sum(r["records_reviewed"]           for r in reps)
         _custom_terms   = sum(r["custom_terms_total"]         for r in reps)
-        _custom_subj    = sum(r["custom_subjects_total"]      for r in reps)
+        _custom_subj    = sum(r["custom_topics_total"]         for r in reps)
         _total_dist     = sum(r["text_edit_distance_total"]   for r in reps)
         _total_orig_vol = sum(r["text_original_length_total"] for r in reps)
         _total_new_vol  = sum(r["text_new_length_total"]      for r in reps)
@@ -609,11 +609,11 @@ def compute_evaluator_behavior(reports: list[dict]) -> pd.DataFrame:
             "Edit Rate (%)":               _pool_rate(reps, "records_edited_count",        "records_reviewed"),
             "Records Unchanged (%)":       _pool_rate(reps, "records_unchanged_count",     "records_reviewed"),
             "Text % Changed":              round(_total_dist / _total_vol * 100, 1) if _total_vol > 0 else None,
-            "Subject Acceptance (%)":      _pool_rate(reps, "subjects_accepted",            "subjects_total"),
+            "Topic Acceptance (%)":         _pool_rate(reps, "topics_accepted",              "topics_total"),
             "Heading Approval (%)":        _pool_rate(reps, "headings_approved",            "headings_total"),
             "Archivist Addition Rate (%)": _pool_rate(reps, "records_with_vocab_adds_count","records_reviewed"),
             "Avg Custom Terms Added":      round(_custom_terms / _total_records, 2) if _total_records > 0 else None,
-            "Avg Custom Subjects Added":   round(_custom_subj  / _total_records, 2) if _total_records > 0 else None,
+            "Avg Custom Topics Added":   round(_custom_subj  / _total_records, 2) if _total_records > 0 else None,
             "Notes Written (%)":           _pool_rate(reps, "records_with_notes_count",    "records_reviewed"),
         })
 
@@ -654,7 +654,7 @@ def compute_collection_difficulty(reports: list[dict]) -> pd.DataFrame:
             "Avg Text % Changed":        round(_total_dist / _total_vol * 100, 1) if _total_vol > 0 else None,
             "Chars Added / Record":      round(_total_added   / _total_records, 2) if _total_records > 0 else None,
             "Chars Deleted / Record":    round(_total_deleted / _total_records, 2) if _total_records > 0 else None,
-            "Subject Acceptance (%)":    _pool_rate(creps, "subjects_accepted",     "subjects_total"),
+            "Topic Acceptance (%)":       _pool_rate(creps, "topics_accepted",       "topics_total"),
             "Heading Approval (%)":      _pool_rate(creps, "headings_approved",     "headings_total"),
             "Best Model":                best_model,
             "Best Model Edit Rate (%)":  round(model_edit_rates[best_model], 1) if best_model else None,
@@ -767,11 +767,11 @@ class ExcelWriter:
             "Chars Deleted / Record":      "pooled: total chars removed ÷ total records reviewed — every record counts equally",
             "Edit Effort Ratio":           "pooled: (total chars added + total chars deleted) ÷ max(total original, total edited) character volume — every record counts equally",
             "List Item Retention (%)":     "pooled: (total items kept or corrected / total original AI items) × 100 — every record counts equally",
-            "Subject Acceptance (%)":      "pooled: (total subjects approved / total subjects suggested) × 100 — every record counts equally",
+            "Topic Acceptance (%)":        "pooled: (total topics approved / total topics suggested) × 100 — every record counts equally",
             "Heading Approval (%)":        "pooled: (total headings approved / total headings suggested) × 100 — every record counts equally",
             "Archivist Addition Rate (%)": "pooled: (records where ≥1 term added from search results / total records reviewed) × 100",
             "Avg Custom Terms Added":      "pooled: total vocabulary terms added from search results / total records reviewed",
-            "Avg Custom Subjects Added":   "pooled: total subject terms written in manually / total records reviewed",
+            "Avg Custom Topics Added":     "pooled: total topic terms written in manually / total records reviewed",
             "Collections":                 "count of distinct collections covered by this model's reports",
             "Evaluators":                  "count of distinct evaluators who reviewed this model",
         }
@@ -780,7 +780,7 @@ class ExcelWriter:
 
     def write_task_breakdown(self, df: pd.DataFrame) -> None:
         ws = self.wb.create_sheet("Task Breakdown")
-        self._write_title(ws, "Task Breakdown — Edit Rate (%) by Field and Model  |  'subjects' row shows rejection rate", len(df.columns))
+        self._write_title(ws, "Task Breakdown — Edit Rate (%) by Field and Model  |  'topics' row shows rejection rate", len(df.columns))
         explanation: dict = {
             "Field":                       "",
             "Field Type":                  "",
@@ -811,11 +811,11 @@ class ExcelWriter:
             "Edit Rate (%)":               "pooled: (total records with ≥1 edit / total records reviewed) × 100 — every record counts equally",
             "Records Unchanged (%)":       "pooled: (total records with no edits / total records reviewed) × 100 — every record counts equally",
             "Text % Changed":              "pooled: total edit distance ÷ max(total original, total edited) character volume — every record counts equally",
-            "Subject Acceptance (%)":      "pooled: (total subjects approved / total subjects suggested) × 100 — every record counts equally",
+            "Topic Acceptance (%)":        "pooled: (total topics approved / total topics suggested) × 100 — every record counts equally",
             "Heading Approval (%)":        "pooled: (total headings approved / total headings suggested) × 100 — every record counts equally",
             "Archivist Addition Rate (%)": "pooled: (records where ≥1 vocab term added / total records reviewed) × 100 — every record counts equally",
             "Avg Custom Terms Added":      "pooled: total vocab terms added from search results / total records reviewed",
-            "Avg Custom Subjects Added":   "pooled: total subject terms written in manually / total records reviewed",
+            "Avg Custom Topics Added":     "pooled: total topic terms written in manually / total records reviewed",
             "Notes Written (%)":           "pooled: (records where evaluator wrote a note / total records reviewed) × 100",
         }
         self._write_df(ws, df, freeze_col=2, explanation=explanation)
@@ -831,7 +831,7 @@ class ExcelWriter:
             "Avg Text % Changed":        "pooled: total edit distance ÷ max(total original, total edited) character volume — every record counts equally",
             "Chars Added / Record":      "pooled: total chars inserted ÷ total records reviewed — every record counts equally",
             "Chars Deleted / Record":    "pooled: total chars removed ÷ total records reviewed — every record counts equally",
-            "Subject Acceptance (%)":    "pooled: (total subjects approved / total subjects suggested) × 100 — every record counts equally",
+            "Topic Acceptance (%)":       "pooled: (total topics approved / total topics suggested) × 100 — every record counts equally",
             "Heading Approval (%)":      "pooled: (total headings approved / total headings suggested) × 100 — every record counts equally",
             "Best Model":                "model with the lowest pooled edit rate for this collection",
             "Best Model Edit Rate (%)":  "pooled edit rate of the best-performing model for this collection",

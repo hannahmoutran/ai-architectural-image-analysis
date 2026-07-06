@@ -8,7 +8,7 @@ Multi-provider AI pipeline for automated metadata generation from architectural 
 
 This system uses LLMs (Claude, OpenAI, Gemini) to:
 - Extract archival metadata from architectural drawing images
-- Map extracted content to controlled vocabularies (LCSH, FAST, Getty AAT, Getty TGN)
+- Map extracted content to controlled vocabularies (LCSH, FAST, Getty AAT)
 - Enable archivist review through an interactive HTML interface
 - Generate professional deliverables for archival systems
 
@@ -20,7 +20,7 @@ This system uses LLMs (Claude, OpenAI, Gemini) to:
 ## Features
 
 - **Multi-provider support**: Choose between OpenAI, Anthropic Claude, or Google Gemini for AI processing
-- **Controlled vocabulary integration**: Automatically searches and selects terms from LCSH, FAST, Getty AAT, and Getty TGN
+- **Controlled vocabulary integration**: Automatically searches and selects terms from LCSH, FAST, and Getty AAT
 - **Format/media vocabulary**: Extracts medium and support separately and maps them to Getty AAT terms
 - **OpenAI Batch API support**: 50% cost savings with OpenAI's Batch API for large collections
 - **Multi-collection processing**: Process multiple collections sequentially in a single run
@@ -35,9 +35,9 @@ Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3
 
 | Step | Scripts | Purpose |
 |------|---------|---------|
-| **1** | `step-1-architectural-drawings-{claude,openai,gemini}.py`, `step-1-architectural-drawings-openai-portkey.py` | Extract metadata from images (title, contributors, genre, description, subjects, dates, entities, medium, support) |
+| **1** | `step-1-architectural-drawings-{claude,openai,gemini}.py`, `step-1-architectural-drawings-openai-portkey.py` | Extract metadata from images (title, contributors, genre, description, topics, dates, entities, medium, support) |
 | **1.5** | `step-1.5-batch-cleanup.py` | Reprocess failed items from Step 1 |
-| **2** | `step-2-terms.py` | Query controlled vocabulary APIs (LCSH, FAST, Getty AAT/TGN) |
+| **2** | `step-2-terms.py` | Query controlled vocabulary APIs (LCSH, FAST, Getty AAT) |
 | **3** | `step-3-vocab-selection-{claude,openai,gemini}.py`, `step-3-vocab-selection-openai-portkey.py` | AI selects best vocabulary terms from search results |
 | **4** | `step-4-entity-report-creation.py` | Compile named entity authority file with fuzzy matching |
 | — | `html-review.py` | Generate interactive HTML review interface for archivist curation |
@@ -282,7 +282,6 @@ Terms are sourced from authoritative vocabularies via API:
 - **LCSH** - Library of Congress Subject Headings
 - **FAST** - Faceted Application of Subject Terminology
 - **Getty AAT** - Art & Architecture Thesaurus
-- **Getty TGN** - Thesaurus of Geographic Names
 
 The AI selects from verified terms rather than generating subject headings, ensuring all terms include proper URIs.
 

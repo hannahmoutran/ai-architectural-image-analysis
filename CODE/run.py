@@ -70,19 +70,15 @@ def run_step(step_num, env_overrides=None, image_folder=None, output_folder=None
     if env_overrides:
         env.update(env_overrides)
 
-    # Map step numbers to scripts and their provider-specific variants
+    # Map step numbers to scripts
     if step_num == 1:
         config = get_step1_config(image_folder)
         provider = config["provider"]
-        script_map = {
-            "claude": "step-1-architectural-drawings-claude.py",
-            "openai": "step-1-architectural-drawings-openai-portkey.py" if OPENAI_USE_PORTKEY else "step-1-architectural-drawings-openai.py",
-            "gemini": "step-1-architectural-drawings-gemini.py"
-        }
-        script_name = script_map.get(provider)
+        script_name = "step-1-architectural-drawings.py"
         env["CONFIG_MODEL"] = config["model"]
         env["CONFIG_IMAGE_FOLDER"] = config["image_folder"]
-        step_desc = f"Image Analysis ({provider.upper()} - {config['model']})"
+        provider_label = f"{provider.upper()}" + (" (Portkey)" if provider == "openai" and OPENAI_USE_PORTKEY else "")
+        step_desc = f"Image Analysis ({provider_label} - {config['model']})"
 
     elif step_num == 2:
         script_name = "step-2-terms.py"
@@ -91,14 +87,10 @@ def run_step(step_num, env_overrides=None, image_folder=None, output_folder=None
     elif step_num == 3:
         config = get_step3_config()
         provider = config["provider"]
-        script_map = {
-            "claude": "step-3-vocab-selection-claude.py",
-            "openai": "step-3-vocab-selection-openai-portkey.py" if OPENAI_USE_PORTKEY else "step-3-vocab-selection-openai.py",
-            "gemini": "step-3-vocab-selection-gemini.py"
-        }
-        script_name = script_map.get(provider)
+        script_name = "step-3-vocab-selection.py"
         env["MODEL_NAME"] = config["model"]
-        step_desc = f"Vocabulary Selection ({provider.upper()} - {config['model']})"
+        provider_label = f"{provider.upper()}" + (" (Portkey)" if provider == "openai" and OPENAI_USE_PORTKEY else "")
+        step_desc = f"Vocabulary Selection ({provider_label} - {config['model']})"
 
     elif step_num == 4:
         script_name = "step-4-entity-report-creation.py"

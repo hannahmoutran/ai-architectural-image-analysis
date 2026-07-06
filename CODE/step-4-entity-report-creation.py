@@ -537,7 +537,7 @@ class EntityAuthority:
             metadata_headers = [
                 "Folder", "Filename", "Title", "Contributors", "Genre",
                 "Description", "Format/Media", "Date on Drawing", "Sheet Info",
-                "Subjects (AI)", "Subject Headings (Controlled Vocab)",
+                "Topics (AI)", "Subject Headings (Controlled Vocab)",
                 "Named Entities", "Geographic Entities", "Content Warning"
             ]
 
@@ -575,8 +575,8 @@ class EntityAuthority:
                 else:
                     contributors_str = str(contributors) if contributors else ''
 
-                # Get AI-generated subjects
-                subjects = analysis.get('subjects', [])
+                # Get AI-generated topics
+                subjects = analysis.get('topics', [])
                 if isinstance(subjects, list):
                     subjects_str = '; '.join(subjects)
                 else:

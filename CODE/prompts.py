@@ -46,7 +46,7 @@ FIELDS TO EXTRACT:
 - Format Media: Full descriptive phrase for the drawing medium and support (e.g., "ink on linen", "blueprint", "pencil on vellum"). Include condition notes if notable.
 - Medium: The applied medium or material (e.g., ink, graphite, pencil, watercolor, blueprint). Semicolons for multiple. This will be used for Getty AAT lookup.
 - Support: The physical substrate or support material (e.g., linen, vellum, tracing paper, cardboard, paper). Semicolons for multiple. This will be used for Getty AAT lookup.
-- Subjects: Building types, materials, architectural features, decorative elements (max 10, separated by semicolons). These will be used as keywords to search for controlled vocabulary terms via API.
+- Topics: Building types, materials, architectural features, decorative elements (max 10, separated by semicolons). These will be used as keywords to search for controlled vocabulary terms via API.
 - Date On Drawing: Dates from title block, stamps, annotations. Use [no date] if none visible.
 - Sheet Info: Sheet number, project number, scale notation.
 - Named Entities: Non-geographic entities as "Name (Type)" - types: Architect, Firm, Person, Building, Organization, etc.
@@ -61,7 +61,7 @@ Description: Floor plan in ink on tracing paper showing a four-bedroom residence
 Format Media: ink on tracing paper
 Medium: ink
 Support: tracing paper
-Subjects: residential architecture; floor plans; single-family homes
+Topics: residential architecture; floor plans; single-family homes
 Date On Drawing: March 1925
 Sheet Info: Sheet 3 of 12
 Named Entities: John Smith (Architect); ABC Engineering (Firm)

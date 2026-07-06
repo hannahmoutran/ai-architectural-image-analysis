@@ -88,11 +88,11 @@ class ArchivistEditsIntegrator:
             'integration_timestamp': '',
             # Detailed character-level metrics for text fields
             'text_field_metrics': {},  # {field_name: {chars_added, chars_deleted, edit_distance_sum, similarity_ratio_sum, token_sort_ratio_sum, edits_count}}
-            # Subject metrics (the broad topics AI identified)
-            'subjects_total': 0,
-            'subjects_accepted': 0,
-            'subjects_rejected': 0,
-            'subjects_custom_added': 0,  # archivist-added subjects (not headings)
+            # Topic metrics (the broad topics AI identified)
+            'topics_total': 0,
+            'topics_accepted': 0,
+            'topics_rejected': 0,
+            'topics_custom_added': 0,  # archivist-added topics (not headings)
             # Subject heading metrics (controlled vocabulary terms)
             'ai_selected_total': 0,
             'ai_selected_approved': 0,
@@ -242,7 +242,7 @@ class ArchivistEditsIntegrator:
             'contributors': 'contributors',
             'named_entities': 'named_entities',
             'geographic_entities': 'geographic_entities',
-            'subjects': 'subjects'
+            'topics': 'topics'
         }
 
         # Fields that are text (for character-level diff)
@@ -340,9 +340,9 @@ class ArchivistEditsIntegrator:
     def _resolve_term_label(self, term_id, analysis):
         """Resolve a term ID (e.g. 'subject-4') to a human-readable label."""
         try:
-            if term_id.startswith('subject-'):
+            if term_id.startswith('topic-'):
                 idx = int(term_id.split('-', 1)[1])
-                subjects = analysis.get('subjects', [])
+                subjects = analysis.get('topics', [])
                 if 0 <= idx < len(subjects):
                     return subjects[idx]
             elif term_id.startswith('selected-'):
@@ -531,11 +531,11 @@ class ArchivistEditsIntegrator:
                 cascade_from = ''
 
             # Categorize by term type and status
-            if term_id.startswith('subject-'):
-                # Subject decisions (the broad topics)
+            if term_id.startswith('topic-'):
+                # Topic decisions (the broad topics)
                 if status == 'rejected':
-                    self.stats['subjects_rejected'] += 1
-                # Note: subjects_accepted is calculated later from total - rejected
+                    self.stats['topics_rejected'] += 1
+                # Note: topics_accepted is calculated later from total - rejected
             elif term_id.startswith('selected-'):
                 # AI-selected subject headings
                 if status == 'cascade_rejected':
@@ -559,9 +559,9 @@ class ArchivistEditsIntegrator:
             # Log to edit history.
             # Skip default-approved terms that ended up approved — those are no-ops
             # (archivist rejected then restored, net result = no change from default).
-            # Default-approved groups: subject-*, selected-*, medium-selected-*
+            # Default-approved groups: topic-*, selected-*, medium-selected-*
             # Opt-in groups (other-*, medium-other-*) should always be logged when approved.
-            DEFAULT_APPROVED_PREFIXES = ('subject-', 'selected-', 'medium-selected-')
+            DEFAULT_APPROVED_PREFIXES = ('topic-', 'selected-', 'medium-selected-')
             is_no_op_approval = (status == 'approved' and term_id.startswith(DEFAULT_APPROVED_PREFIXES))
 
             if not is_no_op_approval:
@@ -593,8 +593,8 @@ class ArchivistEditsIntegrator:
 
         return True
 
-    def apply_custom_terms(self, record, custom_terms, custom_subjects, record_id):
-        """Apply custom terms and subjects added by archivist."""
+    def apply_custom_terms(self, record, custom_terms, custom_topics, record_id):
+        """Apply custom terms and topics added by archivist."""
         analysis = record.get('analysis', {})
 
         # Add custom terms to a dedicated field
@@ -611,27 +611,27 @@ class ArchivistEditsIntegrator:
                     'edit_type': 'custom_term_added'
                 })
 
-        # Add custom subjects to the subjects list
-        if custom_subjects:
-            existing_subjects = analysis.get('subjects', [])
+        # Add custom topics to the topics list
+        if custom_topics:
+            existing_subjects = analysis.get('topics', [])
             if not isinstance(existing_subjects, list):
                 existing_subjects = [existing_subjects] if existing_subjects else []
 
-            for subj in custom_subjects:
+            for subj in custom_topics:
                 label = subj.get('label', '')
                 if label and label not in existing_subjects:
                     existing_subjects.append(label)
-                    self.stats['subjects_custom_added'] += 1
+                    self.stats['topics_custom_added'] += 1
 
                     self.edit_history.append({
                         'record_id': record_id,
-                        'field': 'custom_subject',
+                        'field': 'custom_topic',
                         'original_value': '',
                         'new_value': label,
-                        'edit_type': 'custom_subject_added'
+                        'edit_type': 'custom_topic_added'
                     })
 
-            analysis['subjects'] = existing_subjects
+            analysis['topics'] = existing_subjects
 
         record['analysis'] = analysis
         return True
@@ -745,17 +745,17 @@ class ArchivistEditsIntegrator:
                 term_decisions, record
             )
 
-            # Apply custom terms and subjects
+            # Apply custom terms and topics
             custom_terms = decision.get('custom_terms', [])
-            custom_subjects = decision.get('custom_subjects', [])
-            if custom_terms or custom_subjects:
-                self.apply_custom_terms(record, custom_terms, custom_subjects, record_id)
+            custom_topics = decision.get('custom_topics', [])
+            if custom_terms or custom_topics:
+                self.apply_custom_terms(record, custom_terms, custom_topics, record_id)
                 has_edits = True
                 # Add custom additions to term_decisions metrics
                 if 'term_decisions' not in record_metrics:
                     record_metrics['term_decisions'] = {}
                 record_metrics['term_decisions']['archivist_added_custom'] = len(custom_terms)
-                record_metrics['term_decisions']['subjects_custom_added'] = len(custom_subjects)
+                record_metrics['term_decisions']['topics_custom_added'] = len(custom_topics)
 
             # Add archivist metadata
             analysis = record.get('analysis', {})
@@ -788,7 +788,7 @@ class ArchivistEditsIntegrator:
         analysis = record.get('analysis', {})
 
         # Get totals from the record data
-        subjects = analysis.get('subjects', [])
+        subjects = analysis.get('topics', [])
         if not isinstance(subjects, list):
             subjects = [subjects] if subjects else []
         subjects_total = len(subjects)
@@ -805,7 +805,7 @@ class ArchivistEditsIntegrator:
         for term_id, decision in term_decisions.items():
             status = decision.get('status', decision) if isinstance(decision, dict) else decision
 
-            if term_id.startswith('subject-'):
+            if term_id.startswith('topic-'):
                 if status == 'rejected':
                     subjects_rejected += 1
             elif term_id.startswith('selected-'):
@@ -818,7 +818,7 @@ class ArchivistEditsIntegrator:
                     archivist_from_list += 1
 
         return {
-            'subjects': {
+            'topics': {
                 'total': subjects_total,
                 'accepted': subjects_total - subjects_rejected,
                 'rejected': subjects_rejected
@@ -835,15 +835,15 @@ class ArchivistEditsIntegrator:
         }
 
     def _calculate_aggregate_subject_heading_metrics(self):
-        """Calculate aggregate metrics for subjects and headings across all records."""
+        """Calculate aggregate metrics for topics and headings across all records."""
         for record in self.workflow_data:
             analysis = record.get('analysis', {})
 
-            # Count subjects (the broad topics AI identified)
-            original_subjects = analysis.get('subjects', [])
+            # Count topics (the broad topics AI identified)
+            original_subjects = analysis.get('topics', [])
             if not isinstance(original_subjects, list):
                 original_subjects = [original_subjects] if original_subjects else []
-            self.stats['subjects_total'] += len(original_subjects)
+            self.stats['topics_total'] += len(original_subjects)
 
             # Count AI-selected subject headings (controlled vocabulary terms)
             final_selected_terms = analysis.get('final_selected_terms', [])
@@ -855,8 +855,8 @@ class ArchivistEditsIntegrator:
                 self.stats['medium_selected_total'] += len(medium_selected_terms)
 
         # Calculate derived stats
-        # subjects_accepted = total - rejected (rejected is counted in apply_term_decisions)
-        self.stats['subjects_accepted'] = self.stats['subjects_total'] - self.stats['subjects_rejected']
+        # topics_accepted = total - rejected (rejected is counted in apply_term_decisions)
+        self.stats['topics_accepted'] = self.stats['topics_total'] - self.stats['topics_rejected']
 
         # ai_selected_approved = total - rejected - cascade_rejected
         self.stats['ai_selected_approved'] = (
@@ -912,7 +912,7 @@ class ArchivistEditsIntegrator:
             metadata_headers = [
                 "Folder", "Filename", "Title", "Contributors", "Genre",
                 "Description", "Format/Media", "Format/Media Terms (Getty AAT)", "Date on Drawing", "Sheet Info",
-                "Subjects (AI)", "Subject Headings (Controlled Vocab)",
+                "Topics (AI)", "Subject Headings (Controlled Vocab)",
                 "Named Entities", "Geographic Entities", "Content Warning",
                 "Reviewed", "Archivist", "Review Date", "Notes"
             ]
@@ -992,7 +992,7 @@ class ArchivistEditsIntegrator:
                         medium_terms_str,
                         metadata.get('date_on_drawing', ''),
                         metadata.get('sheet_info', ''),
-                        format_list(metadata.get('subjects', [])),
+                        format_list(metadata.get('topics', [])),
                         headings_str,
                         format_list(metadata.get('named_entities', [])),
                         format_list(metadata.get('geographic_entities', [])),
@@ -1064,25 +1064,25 @@ class ArchivistEditsIntegrator:
 
             # Subject Acceptance Rates
             row += 1
-            ws2.cell(row=row, column=1, value="SUBJECTS (AI-identified topics)").font = Font(bold=True, size=12)
+            ws2.cell(row=row, column=1, value="TOPICS (AI-identified)").font = Font(bold=True, size=12)
             row += 1
-            subjects_total = self.stats['subjects_total']
-            subjects_accepted = self.stats['subjects_accepted']
-            subjects_rejected = self.stats['subjects_rejected']
-            acceptance_pct = (subjects_accepted / subjects_total * 100) if subjects_total > 0 else 100.0
+            topics_total = self.stats['topics_total']
+            topics_accepted = self.stats['topics_accepted']
+            topics_rejected = self.stats['topics_rejected']
+            acceptance_pct = (topics_accepted / topics_total * 100) if topics_total > 0 else 100.0
 
             ws2.cell(row=row, column=1, value="  Total:").fill = stats_fill
-            ws2.cell(row=row, column=2, value=subjects_total).fill = stats_fill
+            ws2.cell(row=row, column=2, value=topics_total).fill = stats_fill
             row += 1
             ws2.cell(row=row, column=1, value="  Accepted:").fill = stats_fill
-            ws2.cell(row=row, column=2, value=f"{subjects_accepted} ({acceptance_pct:.1f}%)").fill = stats_fill
+            ws2.cell(row=row, column=2, value=f"{topics_accepted} ({acceptance_pct:.1f}%)").fill = stats_fill
             row += 1
             ws2.cell(row=row, column=1, value="  Rejected:").fill = stats_fill
-            ws2.cell(row=row, column=2, value=subjects_rejected).fill = stats_fill
+            ws2.cell(row=row, column=2, value=topics_rejected).fill = stats_fill
             row += 1
-            if self.stats['subjects_custom_added'] > 0:
+            if self.stats['topics_custom_added'] > 0:
                 ws2.cell(row=row, column=1, value="  Custom Added:").fill = stats_fill
-                ws2.cell(row=row, column=2, value=self.stats['subjects_custom_added']).fill = stats_fill
+                ws2.cell(row=row, column=2, value=self.stats['topics_custom_added']).fill = stats_fill
                 row += 1
 
             # Subject Heading Approval Rates
@@ -1167,9 +1167,9 @@ class ArchivistEditsIntegrator:
         list_fields_edited = sum(m['edits_count'] for m in self.stats['list_field_metrics'].values())
         list_field_edit_rate_pct = (list_fields_edited / list_fields_reviewed * 100) if list_fields_reviewed > 0 else 0
 
-        # Subject acceptance rate
-        subjects_total = self.stats['subjects_total']
-        subjects_accepted = self.stats['subjects_accepted']
+        # Topic acceptance rate
+        subjects_total = self.stats['topics_total']
+        subjects_accepted = self.stats['topics_accepted']
         subject_acceptance_pct = (subjects_accepted / subjects_total * 100) if subjects_total > 0 else 100.0
 
         # AI-selected heading approval rate
@@ -1219,7 +1219,7 @@ class ArchivistEditsIntegrator:
                 'display': f"{list_items_kept} kept, {list_items_corrected} corrected, {list_items_removed} removed, {list_items_added} added (net {list_net_change:+d})",
                 'value': list_net_change
             },
-            'subject_acceptance_rate': {
+            'topic_acceptance_rate': {
                 'display': f"{subjects_accepted}/{subjects_total} accepted = {subject_acceptance_pct:.1f}%",
                 'value': round(subject_acceptance_pct, 2)
             },
@@ -1240,8 +1240,8 @@ class ArchivistEditsIntegrator:
             # Get term decisions for this record
             term_decisions = record_metrics.get('term_decisions', {})
 
-            # Calculate percentages for subjects
-            subjects_info = term_decisions.get('subjects', {})
+            # Calculate percentages for topics
+            subjects_info = term_decisions.get('topics', {})
             subj_total = subjects_info.get('total', 0)
             subj_accepted = subjects_info.get('accepted', 0)
             subj_rejected = subjects_info.get('rejected', 0)
@@ -1263,7 +1263,7 @@ class ArchivistEditsIntegrator:
                 'text_fields': {},
                 'list_fields': {},
                 'terms': {
-                    'subjects': {
+                    'topics': {
                         'summary': f"{subj_accepted}/{subj_total} accepted = {subj_pct:.0f}%",
                         'total': subj_total,
                         'accepted': subj_accepted,
@@ -1322,7 +1322,7 @@ class ArchivistEditsIntegrator:
             if 0 <= record_idx < len(self.workflow_data):
                 analysis = self.workflow_data[record_idx].get('analysis', {})
 
-            subjects = analysis.get('subjects', [])
+            subjects = analysis.get('topics', [])
             if not isinstance(subjects, list):
                 subjects = [subjects] if subjects else []
             subj_total = len(subjects)
@@ -1337,7 +1337,7 @@ class ArchivistEditsIntegrator:
                 'text_fields': {},
                 'list_fields': {},
                 'terms': {
-                    'subjects': {
+                    'topics': {
                         'summary': f"{subj_total}/{subj_total} accepted = 100%",
                         'total': subj_total,
                         'accepted': subj_total,
@@ -1461,21 +1461,21 @@ class ArchivistEditsIntegrator:
                 'retention_rate': retention_pct,
             }
 
-        # Subjects summary (broad topics AI identified)
-        subjects_total = self.stats['subjects_total']
-        subjects_accepted = self.stats['subjects_accepted']
-        subjects_rejected = self.stats['subjects_rejected']
+        # Topics summary (broad topics AI identified)
+        subjects_total = self.stats['topics_total']
+        subjects_accepted = self.stats['topics_accepted']
+        subjects_rejected = self.stats['topics_rejected']
         acceptance_pct = (subjects_accepted / subjects_total * 100) if subjects_total > 0 else 100.0
 
-        subjects_summary = {
+        topics_summary = {
             'summary': f"{subjects_accepted}/{subjects_total} accepted = {acceptance_pct:.1f}%",
             'total': subjects_total,
             'accepted': subjects_accepted,
             'rejected': subjects_rejected,
             'acceptance_rate': round(acceptance_pct, 2)
         }
-        if self.stats['subjects_custom_added'] > 0:
-            subjects_summary['custom_added'] = self.stats['subjects_custom_added']
+        if self.stats['topics_custom_added'] > 0:
+            topics_summary['custom_added'] = self.stats['topics_custom_added']
 
         # Subject headings summary (controlled vocabulary terms)
         ai_total = self.stats['ai_selected_total']
@@ -1541,7 +1541,7 @@ class ArchivistEditsIntegrator:
                 'text_fields': text_fields_summary,
                 'list_fields': list_fields_summary
             },
-            'subjects': subjects_summary,
+            'topics': topics_summary,
             'subject_headings': subject_headings_summary,
             'records': records,
         }
@@ -1602,13 +1602,13 @@ class ArchivistEditsIntegrator:
             print(f"      All characters deleted: {total_deleted}")
             print(f"      Net change: {total_added - total_deleted:+d}")
 
-        # Subject metrics (broad topics)
-        print(f"\n--- Subjects (AI-identified topics) ---")
-        print(f"   Total: {self.stats['subjects_total']}")
-        print(f"   Accepted: {self.stats['subjects_accepted']}")
-        print(f"   Rejected: {self.stats['subjects_rejected']}")
-        if self.stats['subjects_custom_added'] > 0:
-            print(f"   Custom added: {self.stats['subjects_custom_added']}")
+        # Topic metrics (broad topics AI identified)
+        print(f"\n--- Topics (AI-identified) ---")
+        print(f"   Total: {self.stats['topics_total']}")
+        print(f"   Accepted: {self.stats['topics_accepted']}")
+        print(f"   Rejected: {self.stats['topics_rejected']}")
+        if self.stats['topics_custom_added'] > 0:
+            print(f"   Custom added: {self.stats['topics_custom_added']}")
 
         # Subject heading metrics (controlled vocabulary terms)
         print(f"\n--- Subject Headings (controlled vocabulary) ---")
@@ -1702,7 +1702,7 @@ class ArchivistEditsIntegrator:
                     'label': term['label'],
                     'uri': term['uri'],
                     'source': term['source'],
-                    'derived_from_subject': term.get('orig_term', '')
+                    'derived_from_topic': term.get('orig_term', '')
                 })
 
         return approved_terms
@@ -1723,16 +1723,16 @@ class ArchivistEditsIntegrator:
             if not term_decisions:
                 continue
 
-            # Filter subjects (remove rejected topics)
-            original_subjects = analysis.get('subjects', [])
+            # Filter topics (remove rejected topics)
+            original_subjects = analysis.get('topics', [])
             if not isinstance(original_subjects, list):
                 original_subjects = [original_subjects] if original_subjects else []
             filtered_subjects = []
             for i, subject in enumerate(original_subjects):
-                decision = term_decisions.get(f"subject-{i}")
+                decision = term_decisions.get(f"topic-{i}")
                 if decision is None or decision == 'approved':
                     filtered_subjects.append(subject)
-            analysis['subjects'] = filtered_subjects
+            analysis['topics'] = filtered_subjects
 
             # Filter final_selected_terms (remove rejected/cascade_rejected headings)
             final_terms = analysis.get('final_selected_terms', [])
@@ -1788,15 +1788,15 @@ class ArchivistEditsIntegrator:
             analysis = record.get('analysis', {})
             term_decisions = analysis.get('archivist_term_decisions', {})
 
-            # Get the list of original subjects
-            original_subjects = analysis.get('subjects', [])
+            # Get the list of original topics
+            original_subjects = analysis.get('topics', [])
             if not isinstance(original_subjects, list):
                 original_subjects = [original_subjects] if original_subjects else []
 
-            # Filter subjects: keep only approved ones
+            # Filter topics: keep only approved ones
             approved_subjects = []
             for i, subject in enumerate(original_subjects):
-                term_id = f"subject-{i}"
+                term_id = f"topic-{i}"
                 decision = term_decisions.get(term_id)
                 # Keep if no decision (default approved) or explicitly approved
                 if decision is None or decision == 'approved':
@@ -1820,7 +1820,7 @@ class ArchivistEditsIntegrator:
                     'label': term.get('label', ''),
                     'uri': term.get('uri', ''),
                     'source': term.get('source', ''),
-                    'derived_from_subject': term.get('derived_from_subject', '')
+                    'derived_from_topic': term.get('derived_from_topic', '')
                 })
 
             # Add any custom terms added by archivist
@@ -1830,7 +1830,7 @@ class ArchivistEditsIntegrator:
                     'label': term.get('label', ''),
                     'uri': term.get('uri', ''),
                     'source': term.get('source', 'Manual'),
-                    'derived_from_subject': ''
+                    'derived_from_topic': ''
                 })
 
             # Add "other-*" terms that were approved from the vocabulary list
@@ -1842,7 +1842,7 @@ class ArchivistEditsIntegrator:
                     'label': term.get('label', ''),
                     'uri': term.get('uri', ''),
                     'source': term.get('source', ''),
-                    'derived_from_subject': term.get('derived_from_subject', '')
+                    'derived_from_topic': term.get('derived_from_topic', '')
                 })
 
             # Filter medium/support vocabulary terms: keep only approved ones
@@ -1857,7 +1857,7 @@ class ArchivistEditsIntegrator:
                     'label': term.get('label', ''),
                     'uri': term.get('uri', ''),
                     'source': term.get('source', ''),
-                    'derived_from_subject': term.get('derived_from_subject', '')
+                    'derived_from_topic': term.get('derived_from_topic', '')
                 })
 
             # Add "medium-other-*" terms that were approved from the medium vocabulary list
@@ -1879,7 +1879,7 @@ class ArchivistEditsIntegrator:
                             'label': term['label'],
                             'uri': term['uri'],
                             'source': term['source'],
-                            'derived_from_subject': term.get('topic', '')
+                            'derived_from_topic': term.get('topic', '')
                         })
 
             # Build clean record
@@ -1901,7 +1901,7 @@ class ArchivistEditsIntegrator:
                     'named_entities': analysis.get('named_entities', []),
                     'geographic_entities': analysis.get('geographic_entities', []),
                     'content_warning': analysis.get('content_warning', ''),
-                    'subjects': approved_subjects,
+                    'topics': approved_subjects,
                     'subject_headings': approved_headings
                 },
                 'review_info': {
