@@ -867,8 +867,8 @@ class HTMLReviewBuilder:
             const div = document.createElement('div');
             div.className = 'contributor-item';
             div.innerHTML = `
-                <input type="text" class="field-input contrib-name" placeholder="Name" style="flex:1;" onchange="saveContributors(${{recordId}})">
-                <input type="text" class="field-input contrib-role" placeholder="Role" style="width:150px;flex-shrink:0;" onchange="saveContributors(${{recordId}})">
+                <input type="text" class="field-input contrib-name" placeholder="Name" style="flex:1;" oninput="saveContributors(${{recordId}})">
+                <input type="text" class="field-input contrib-role" placeholder="Role" style="width:150px;flex-shrink:0;" oninput="saveContributors(${{recordId}})">
                 <button class="remove-btn" onclick="this.parentElement.remove(); saveContributors(${{recordId}})">X</button>
             `;
             container.appendChild(div);
@@ -907,10 +907,76 @@ class HTMLReviewBuilder:
             const div = document.createElement('div');
             div.className = 'list-item';
             div.innerHTML = `
-                <input type="text" class="field-input" placeholder="Enter value..." onchange="saveListField(${{recordId}}, '${{fieldName}}')">
+                <input type="text" class="field-input" placeholder="Enter value..." oninput="saveListField(${{recordId}}, '${{fieldName}}')">
                 <button class="remove-btn" onclick="this.parentElement.remove(); saveListField(${{recordId}}, '${{fieldName}}')">X</button>
             `;
             container.appendChild(div);
+        }}
+
+        function buildListItemRow(recordId, fieldName, value) {{
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'field-input';
+            input.placeholder = 'Enter value...';
+            input.value = value;
+            input.addEventListener('input', () => saveListField(recordId, fieldName));
+            const btn = document.createElement('button');
+            btn.className = 'remove-btn';
+            btn.textContent = 'X';
+            btn.addEventListener('click', () => {{ div.remove(); saveListField(recordId, fieldName); }});
+            div.appendChild(input);
+            div.appendChild(btn);
+            return div;
+        }}
+
+        function restoreListFieldValues(recordId, fieldName, values) {{
+            // Rebuild a list field from saved edits so refreshing the page
+            // shows the archivist's edited values, not the original AI values.
+            const container = document.getElementById(fieldName + '-' + recordId);
+            if (!container || !Array.isArray(values)) return;
+            container.innerHTML = '';
+            values.forEach(v => container.appendChild(buildListItemRow(recordId, fieldName, v)));
+            const group = container.closest('.field-group');
+            if (group) group.classList.add('edited');
+        }}
+
+        function buildContributorRow(recordId, name, role) {{
+            const div = document.createElement('div');
+            div.className = 'contributor-item';
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'field-input contrib-name';
+            nameInput.placeholder = 'Name';
+            nameInput.style.flex = '1';
+            nameInput.value = name;
+            nameInput.addEventListener('input', () => saveContributors(recordId));
+            const roleInput = document.createElement('input');
+            roleInput.type = 'text';
+            roleInput.className = 'field-input contrib-role';
+            roleInput.placeholder = 'Role';
+            roleInput.style.width = '150px';
+            roleInput.style.flexShrink = '0';
+            roleInput.value = role;
+            roleInput.addEventListener('input', () => saveContributors(recordId));
+            const btn = document.createElement('button');
+            btn.className = 'remove-btn';
+            btn.textContent = 'X';
+            btn.addEventListener('click', () => {{ div.remove(); saveContributors(recordId); }});
+            div.appendChild(nameInput);
+            div.appendChild(roleInput);
+            div.appendChild(btn);
+            return div;
+        }}
+
+        function restoreContributorValues(recordId, contributors) {{
+            const container = document.getElementById('contributors-' + recordId);
+            if (!container || !Array.isArray(contributors)) return;
+            container.innerHTML = '';
+            contributors.forEach(c => container.appendChild(buildContributorRow(recordId, c.name || '', c.role || '')));
+            const group = container.closest('.field-group');
+            if (group) group.classList.add('edited');
         }}
 
         function setTermStatus(recordId, termId, status, isCascade = false) {{
@@ -979,7 +1045,7 @@ class HTMLReviewBuilder:
             const record = document.getElementById('record-' + recordId);
             if (!record) return;
 
-            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + topicText + '"]');
+            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + CSS.escape(topicText) + '"]');
             derivedHeadings.forEach(headingEl => {{
                 const headingTermId = headingEl.id.replace('term-' + recordId + '-', '');
                 // Mark as cascade-rejected (not explicitly rejected)
@@ -1001,7 +1067,7 @@ class HTMLReviewBuilder:
             if (!record) return;
 
             const termDecisions = getStorage('terms-' + recordId, {{}});
-            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + topicText + '"]');
+            const derivedHeadings = record.querySelectorAll('.vocab-term[data-derived-from="' + CSS.escape(topicText) + '"]');
 
             derivedHeadings.forEach(headingEl => {{
                 const headingTermId = headingEl.id.replace('term-' + recordId + '-', '');
@@ -1051,25 +1117,44 @@ class HTMLReviewBuilder:
             // Store in custom topics
             const customSubjects = getStorage('custom-topics-' + recordId, []);
             const subjectId = 'newtopic-' + Date.now();
-            customSubjects.push({{ id: subjectId, label: subject }});
+            const topic = {{ id: subjectId, label: subject }};
+            customSubjects.push(topic);
             setStorage('custom-topics-' + recordId, customSubjects);
 
-            // Find the topics vocab-group and add before the add form
-            const addForm = input.closest('.add-topic-form');
-            const subjectHtml = `
-                <div class="vocab-term approved" id="term-${{recordId}}-${{subjectId}}" data-default="approved" data-category="topic">
-                    <span class="vocab-term-label">${{subject}}</span>
-                    <span class="vocab-term-source">Manual</span>
-                    <div class="term-actions">
-                        <button class="term-btn reject" onclick="removeCustomTopic(${{recordId}}, '${{subjectId}}')">Remove</button>
-                    </div>
-                </div>
-            `;
-            addForm.insertAdjacentHTML('beforebegin', subjectHtml);
+            renderCustomTopic(recordId, topic);
 
             input.value = '';
             autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
+        }}
+
+        function renderCustomTopic(recordId, topic) {{
+            const input = document.getElementById('new-topic-' + recordId);
+            if (!input) return;
+            const addForm = input.closest('.add-topic-form');
+            if (!addForm || document.getElementById('term-' + recordId + '-' + topic.id)) return;
+            const div = document.createElement('div');
+            div.className = 'vocab-term approved';
+            div.id = 'term-' + recordId + '-' + topic.id;
+            div.dataset.default = 'approved';
+            div.dataset.category = 'topic';
+            const label = document.createElement('span');
+            label.className = 'vocab-term-label';
+            label.textContent = topic.label;
+            const source = document.createElement('span');
+            source.className = 'vocab-term-source';
+            source.textContent = 'Manual';
+            const actions = document.createElement('div');
+            actions.className = 'term-actions';
+            const btn = document.createElement('button');
+            btn.className = 'term-btn reject';
+            btn.textContent = 'Remove';
+            btn.addEventListener('click', () => removeCustomTopic(recordId, topic.id));
+            actions.appendChild(btn);
+            div.appendChild(label);
+            div.appendChild(source);
+            div.appendChild(actions);
+            addForm.insertAdjacentElement('beforebegin', div);
         }}
 
         function removeCustomTopic(recordId, subjectId) {{
@@ -1278,14 +1363,27 @@ class HTMLReviewBuilder:
             document.querySelectorAll('.record').forEach(record => {{
                 const recordId = parseInt(record.id.replace('record-', ''));
 
+                // Store record data (image path, page number) for the export
+                setStorage('record-data-' + recordId, {{
+                    image_path: record.dataset.imagePath || '',
+                    page_number: parseInt(record.dataset.pageNumber || recordId, 10)
+                }});
+
                 // Store original values for list fields FIRST (before any edits are restored)
                 storeOriginalListValues(recordId);
 
                 // Restore field edits
                 const edits = getStorage('edits-' + recordId, {{}});
                 for (const [field, data] of Object.entries(edits)) {{
-                    if (field === 'contributors' || field === 'named_entities' || field === 'geographic_entities' || field === 'topics') {{
-                        // List fields handled separately
+                    if (field === 'contributors') {{
+                        restoreContributorValues(recordId, data.value);
+                        continue;
+                    }}
+                    if (field === 'named_entities' || field === 'geographic_entities') {{
+                        restoreListFieldValues(recordId, field, data.value);
+                        continue;
+                    }}
+                    if (field === 'topics') {{
                         continue;
                     }}
                     const input = document.getElementById('field-' + recordId + '-' + field);
@@ -1355,6 +1453,10 @@ class HTMLReviewBuilder:
                     }}
                 }}
 
+                // Re-render custom topics saved in previous sessions
+                const savedCustomTopics = getStorage('custom-topics-' + recordId, []);
+                savedCustomTopics.forEach(t => renderCustomTopic(recordId, t));
+
                 // Re-render custom terms saved in previous sessions and
                 // expand their collapsed form sections so they're visible
                 const savedCustomTerms = getStorage('custom-terms-' + recordId, []);
@@ -1394,8 +1496,8 @@ class HTMLReviewBuilder:
                 const customTopics = getStorage('custom-topics-' + i, []);
                 const recordData = getStorage('record-data-' + i, {{}});
 
-                // Only include records that have been reviewed or have edits
-                if (reviewed || Object.keys(edits).length > 0 || Object.keys(termDecisions).length > 0 || customTerms.length > 0 || customMediumTerms.length > 0 || customTopics.length > 0) {{
+                // Only include records that have been reviewed, edited, or annotated
+                if (reviewed || Object.keys(edits).length > 0 || Object.keys(termDecisions).length > 0 || customTerms.length > 0 || customMediumTerms.length > 0 || customTopics.length > 0 || (notes && notes.trim())) {{
                     decisions.push({{
                         record_id: i,
                         image_path: recordData.image_path || '',
@@ -1487,8 +1589,8 @@ class HTMLReviewBuilder:
 
                 html += f'''
                 <div class="contributor-item">
-                    <input type="text" class="field-input contrib-name" value="{name}" placeholder="Name" style="flex:1;" onchange="saveContributors({record_id})">
-                    <input type="text" class="field-input contrib-role" value="{role}" placeholder="Role" style="width:150px;flex-shrink:0;" onchange="saveContributors({record_id})">
+                    <input type="text" class="field-input contrib-name" value="{name}" placeholder="Name" style="flex:1;" oninput="saveContributors({record_id})">
+                    <input type="text" class="field-input contrib-role" value="{role}" placeholder="Role" style="width:150px;flex-shrink:0;" oninput="saveContributors({record_id})">
                     {uri_html}
                     <button class="remove-btn" onclick="this.parentElement.remove(); saveContributors({record_id})">X</button>
                 </div>'''
@@ -1508,7 +1610,7 @@ class HTMLReviewBuilder:
                 value = self.escape_html(item) if isinstance(item, str) else self.escape_html(str(item))
                 html += f'''
                 <div class="list-item">
-                    <input type="text" class="field-input" value="{value}" placeholder="{placeholder}" onchange="saveListField({record_id}, '{field_name}')">
+                    <input type="text" class="field-input" value="{value}" placeholder="{placeholder}" oninput="saveListField({record_id}, '{field_name}')">
                     <button class="remove-btn" onclick="this.parentElement.remove(); saveListField({record_id}, '{field_name}')">X</button>
                 </div>'''
 
@@ -1541,7 +1643,7 @@ class HTMLReviewBuilder:
 
                 html += f'''
                 <div class="list-item">
-                    <input type="text" class="field-input" value="{value}" placeholder="Location..." onchange="saveListField({record_id}, \'geographic_entities\')">
+                    <input type="text" class="field-input" value="{value}" placeholder="Location..." oninput="saveListField({record_id}, \'geographic_entities\')">
                     {uri_html}
                     <button class="remove-btn" onclick="this.parentElement.remove(); saveListField({record_id}, \'geographic_entities\')">X</button>
                 </div>'''
@@ -1738,7 +1840,7 @@ class HTMLReviewBuilder:
             <input type="text" class="field-input"
                 id="field-{record_id}-genre"
                 value="{genre_value}"
-                onchange="saveFieldValue({record_id}, 'genre', this.value)">
+                oninput="saveFieldValue({record_id}, 'genre', this.value)">
         </div>'''
         html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Official Getty AAT terms for the drawing type/genre. Derived from the Genre field above.</p>'
 
@@ -2005,22 +2107,14 @@ class HTMLReviewBuilder:
 
         is_error_record = str(analysis.get('title', '')).startswith('Error:')
 
-        # Store record data for export
-        record_data_js = f'''
-        <script>
-            setStorage('record-data-{global_id}', {{
-                image_path: '{self.escape_js_string(image_path)}',
-                page_number: {page_number}
-            }});
-        </script>
-        '''
-
         error_class = ' error-record' if is_error_record else ''
         error_notice = f'<div class="error-notice">&#9888; This record failed during image analysis (API error). All fields are empty. Re-run Step 1.5 to reprocess this image: <code>{self.escape_html(image_filename)}</code></div>' if is_error_record else ''
 
+        # Record data lives in data attributes; restoreState() copies it into
+        # localStorage for the export (inline scripts here would run before the
+        # main script block at the bottom of the page defines setStorage).
         html = f'''
-        <div class="record{error_class}" id="record-{global_id}">
-            {record_data_js}
+        <div class="record{error_class}" id="record-{global_id}" data-image-path="{self.escape_html(image_path)}" data-page-number="{page_number}">
             {error_notice}
             <div class="record-header">
                 <div class="record-title">Record {global_id}: {self.escape_html(analysis.get('title', 'Untitled'))}</div>
@@ -2069,7 +2163,7 @@ class HTMLReviewBuilder:
                 html += f'''<input type="text" class="field-input"
                     id="field-{global_id}-{field_name}"
                     value="{escaped_value}"
-                    onchange="saveFieldValue({global_id}, '{field_name}', this.value)">'''
+                    oninput="saveFieldValue({global_id}, '{field_name}', this.value)">'''
 
             html += '</div>'
 

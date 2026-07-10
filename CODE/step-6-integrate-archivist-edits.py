@@ -587,6 +587,14 @@ class ArchivistEditsIntegrator:
                 # Archivist opted in from format/media list
                 if status == 'approved':
                     self.stats['archivist_added_from_list'] += 1
+            elif term_id.startswith('genre-selected-'):
+                # AI-selected genre terms (Getty AAT) — track rejections
+                if status == 'rejected':
+                    self.stats['genre_selected_rejected'] += 1
+            elif term_id.startswith('genre-other-'):
+                # Archivist opted in from the genre vocabulary list
+                if status == 'approved':
+                    self.stats['archivist_added_from_list'] += 1
 
             # Log to edit history.
             # Skip default-approved terms that ended up approved — those are no-ops
@@ -812,11 +820,13 @@ class ArchivistEditsIntegrator:
             if has_edits:
                 self.stats['records_with_edits'] += 1
                 self.stats['per_record_metrics'].append(record_metrics)
-            elif decision.get('reviewed', False):
+            elif decision.get('reviewed', False) or record_metrics['archivist_notes']:
+                # Reviewed-only, or notes-only (a note with no other change still
+                # counts as a reviewed record so it appears in the report)
                 self.stats['records_reviewed_only'] += 1
                 self.stats['reviewed_only_metrics'].append({
                     'record_id': record_id,
-                    'archivist_notes': decision.get('archivist_notes', '')
+                    'archivist_notes': record_metrics['archivist_notes']
                 })
 
         # Calculate aggregate subject/heading metrics across all records
@@ -914,6 +924,11 @@ class ArchivistEditsIntegrator:
         # medium_selected_approved = total - rejected
         self.stats['medium_selected_approved'] = (
             self.stats['medium_selected_total'] - self.stats['medium_selected_rejected']
+        )
+
+        # genre_selected_approved = total - rejected
+        self.stats['genre_selected_approved'] = (
+            self.stats['genre_selected_total'] - self.stats['genre_selected_rejected']
         )
 
     def save_workflow_json(self):
@@ -1756,8 +1771,9 @@ class ArchivistEditsIntegrator:
             if not source_name:
                 continue
 
-            # Get the term at that index (limited to first 15, same as HTML)
-            source_terms = sources.get(source_name, [])[:15]
+            # Get the term at that index (the HTML renders all terms per source,
+            # so no cap here — a cap would silently drop approvals past it)
+            source_terms = sources.get(source_name, [])
             if index < len(source_terms):
                 term = source_terms[index]
                 approved_terms.append({
