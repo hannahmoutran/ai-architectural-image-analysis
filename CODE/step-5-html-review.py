@@ -211,6 +211,16 @@ class HTMLReviewBuilder:
         }
         .record.reviewed { border-left: 5px solid #27ae60; }
         .record.has-edits { border-left: 5px solid #f39c12; }
+        .record.error-record { border-left: 5px solid #e74c3c; }
+        .error-notice {
+            background: #fdecea;
+            border: 1px solid #e74c3c;
+            border-radius: 5px;
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            color: #c0392b;
+            font-weight: bold;
+        }
 
         .record-header {
             display: flex;
@@ -653,7 +663,8 @@ class HTMLReviewBuilder:
         /* Alternative terms card grid */
         .other-terms-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            grid-auto-rows: 1fr;
             gap: 10px;
             padding: 4px 0 8px 0;
         }
@@ -1087,28 +1098,57 @@ class HTMLReviewBuilder:
 
             const customTerms = getStorage('custom-terms-' + recordId, []);
             const termId = 'custom-' + Date.now();
-            customTerms.push({{ id: termId, label, source, uri }});
+            const term = {{ id: termId, label, source, uri }};
+            customTerms.push(term);
             setStorage('custom-terms-' + recordId, customTerms);
 
-            // Add to UI - show URI if provided
-            const container = document.getElementById('custom-terms-container-' + recordId);
-            const uriDisplay = uri ? `<a href="${{uri}}" target="_blank" class="term-uri" title="${{uri}}">link</a>` : '';
-            const termHtml = `
-                <div class="vocab-term approved" id="term-${{recordId}}-${{termId}}">
-                    <span class="vocab-term-label">${{label}}</span>
-                    ${{uriDisplay}}
-                    <span class="vocab-term-source">${{source}}</span>
-                    <div class="term-actions">
-                        <button class="term-btn reject" onclick="removeCustomTerm(${{recordId}}, '${{termId}}')">Remove</button>
-                    </div>
-                </div>
-            `;
-            container.insertAdjacentHTML('beforeend', termHtml);
+            renderCustomTerm(recordId, term);
 
             labelInput.value = '';
             uriInput.value = '';
             autoMarkReviewed(recordId);
             updateRecordStatus(recordId);
+        }}
+
+        function renderCustomTerm(recordId, term) {{
+            const container = document.getElementById('custom-terms-container-' + recordId);
+            if (!container) return;
+            const uriDisplay = term.uri ? `<a href="${{term.uri}}" target="_blank" class="term-uri" title="${{term.uri}}">link</a>` : '';
+            container.insertAdjacentHTML('beforeend', `
+                <div class="vocab-term approved" id="term-${{recordId}}-${{term.id}}">
+                    <span class="vocab-term-label">${{term.label}}</span>
+                    ${{uriDisplay}}
+                    <span class="vocab-term-source">${{term.source}}</span>
+                    <div class="term-actions">
+                        <button class="term-btn reject" onclick="removeCustomTerm(${{recordId}}, '${{term.id}}')">Remove</button>
+                    </div>
+                </div>
+            `);
+        }}
+
+        function renderCustomMediumTerm(recordId, term) {{
+            const container = document.getElementById('custom-medium-terms-container-' + recordId);
+            if (!container) return;
+            const uriDisplay = term.uri ? `<a href="${{term.uri}}" target="_blank" class="term-uri" title="${{term.uri}}">URI</a>` : '';
+            container.insertAdjacentHTML('beforeend', `
+                <div class="vocab-term approved" id="term-${{recordId}}-${{term.id}}">
+                    <span class="vocab-term-label">${{term.label}}</span>
+                    ${{uriDisplay}}
+                    <span class="vocab-term-source aat">${{term.source}}</span>
+                    <div class="term-actions">
+                        <button class="term-btn reject" onclick="removeCustomMediumTerm(${{recordId}}, '${{term.id}}')">Remove</button>
+                    </div>
+                </div>
+            `);
+        }}
+
+        function expandSection(contentId) {{
+            const content = document.getElementById(contentId);
+            if (!content) return;
+            content.style.display = 'block';
+            const toggle = content.previousElementSibling;
+            const chevron = toggle ? toggle.querySelector('.chevron') : null;
+            if (chevron) chevron.classList.add('open');
         }}
 
         function removeCustomTerm(recordId, termId) {{
@@ -1137,21 +1177,11 @@ class HTMLReviewBuilder:
 
             const customMediumTerms = getStorage('custom-medium-terms-' + recordId, []);
             const termId = 'medium-custom-' + Date.now();
-            customMediumTerms.push({{ id: termId, label, source, uri }});
+            const term = {{ id: termId, label, source, uri }};
+            customMediumTerms.push(term);
             setStorage('custom-medium-terms-' + recordId, customMediumTerms);
 
-            const container = document.getElementById('custom-medium-terms-container-' + recordId);
-            const uriDisplay = uri ? `<a href="${{uri}}" target="_blank" class="term-uri" title="${{uri}}">URI</a>` : '';
-            container.insertAdjacentHTML('beforeend', `
-                <div class="vocab-term approved" id="term-${{recordId}}-${{termId}}">
-                    <span class="vocab-term-label">${{label}}</span>
-                    ${{uriDisplay}}
-                    <span class="vocab-term-source aat">${{source}}</span>
-                    <div class="term-actions">
-                        <button class="term-btn reject" onclick="removeCustomMediumTerm(${{recordId}}, '${{termId}}')">Remove</button>
-                    </div>
-                </div>
-            `);
+            renderCustomMediumTerm(recordId, term);
 
             labelInput.value = '';
             uriInput.value   = '';
@@ -1324,6 +1354,16 @@ class HTMLReviewBuilder:
                         }}
                     }}
                 }}
+
+                // Re-render custom terms saved in previous sessions and
+                // expand their collapsed form sections so they're visible
+                const savedCustomTerms = getStorage('custom-terms-' + recordId, []);
+                savedCustomTerms.forEach(t => renderCustomTerm(recordId, t));
+                if (savedCustomTerms.length > 0) expandSection('custom-subject-form-content-' + recordId);
+
+                const savedCustomMediumTerms = getStorage('custom-medium-terms-' + recordId, []);
+                savedCustomMediumTerms.forEach(t => renderCustomMediumTerm(recordId, t));
+                if (savedCustomMediumTerms.length > 0) expandSection('custom-medium-form-content-' + recordId);
 
                 updateRecordStatus(recordId);
             }});
@@ -1515,11 +1555,13 @@ class HTMLReviewBuilder:
     def generate_vocabulary_section(self, analysis, record_id):
         """Generate HTML for vocabulary term review section.
 
-        Two separate sections:
+        Section order:
         1. TOPICS (AI-generated, no URIs) - auto-accepted, can reject or add new
         2. SUBJECT HEADINGS (controlled vocabulary with URIs):
            - Selected: auto-accepted, can reject
            - Other: opt-in only
+        3. GENRE - editable genre field followed by its Getty AAT terms
+        4. FORMAT/MEDIA (Getty AAT) - curated medium/support checklists
 
         Cascade rejection: When a topic is rejected, all subject headings derived
         from that topic are automatically cascade-rejected (shown visually).
@@ -1648,7 +1690,7 @@ class HTMLReviewBuilder:
                 total_other_count = sum(len(t) for t in sources.values())
                 other_content_id = f"other-subjects-content-{record_id}"
                 html += f'''<div class="collapsible-toggle" onclick="toggleSection('{other_content_id}', this)" role="button">
-                    <span class="toggle-label">Alternative Subject Headings</span>
+                    <span class="toggle-label">Alternative Subject Headings - click to expand</span>
                     <span class="term-count-badge">{total_other_count} available from vocabulary search</span>
                     <span class="chevron">&#9660;</span>
                 </div>
@@ -1686,92 +1728,18 @@ class HTMLReviewBuilder:
                 html += '</div></div></div>'
 
         # ==========================================
-        # SECTION 3: FORMAT/MEDIA VOCABULARY (Getty AAT)
+        # SECTION 3: GENRE (editable field + Getty AAT vocabulary)
         # ==========================================
-        html += '<div class="section-header" style="margin-top: 25px;">Format/Media Vocabulary (Getty AAT)</div>'
-        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Select all Getty AAT terms that apply to this drawing\'s medium and support. URIs link to the official Getty AAT record.</p>'
-
-        # --- Medium (drawing materials) ---
-        html += '<div class="vocab-group">'
-        html += '<div class="vocab-group-title">Medium <span style="font-weight: normal; font-size: 12px; color: #666;">(drawing/inscribing/coloring materials — click to select)</span></div>'
-        html += '<div class="other-terms-grid">'
-        for i, term in enumerate(MEDIUM_TERMS):
-            term_id = f"medium-curated-{i}"
-            label = self.escape_html(term.get('label', ''))
-            uri = term.get('uri', '')
-            uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
-            html += f'''
-            <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="medium-curated" data-category="medium-term">
-                <div class="card-header">
-                    <span class="vocab-term-label">{label}</span>
-                    <div class="card-badges">
-                        {uri_html}
-                        <span class="vocab-term-source aat">Getty AAT</span>
-                    </div>
-                </div>
-                <div class="term-actions">
-                    <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
-                    <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
-                </div>
-            </div>'''
-        html += '</div></div>'
-
-        # --- Support (base/carrier material) ---
-        html += '<div class="vocab-group" style="margin-top: 12px;">'
-        html += '<div class="vocab-group-title">Support <span style="font-weight: normal; font-size: 12px; color: #666;">(base/carrier material — click to select)</span></div>'
-        html += '<div class="other-terms-grid">'
-        for i, term in enumerate(SUPPORT_TERMS):
-            term_id = f"support-curated-{i}"
-            label = self.escape_html(term.get('label', ''))
-            uri = term.get('uri', '')
-            uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
-            html += f'''
-            <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="support-curated" data-category="medium-term">
-                <div class="card-header">
-                    <span class="vocab-term-label">{label}</span>
-                    <div class="card-badges">
-                        {uri_html}
-                        <span class="vocab-term-source aat">Getty AAT</span>
-                    </div>
-                </div>
-                <div class="term-actions">
-                    <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
-                    <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
-                </div>
-            </div>'''
-        html += '</div></div>'
-
-        # --- Custom Format/Media term form ---
+        html += '<div class="section-header" style="margin-top: 25px;">Genre</div>'
+        genre_value = self.escape_html(analysis.get('genre', ''))
         html += f'''
-        <div class="vocab-group" style="margin-top: 12px;">
-            <div class="vocab-group-title">Add Custom Format/Media Term</div>
-            <div id="custom-medium-terms-container-{record_id}"></div>
-            <div class="add-term-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-                <div>
-                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Term Label *</label>
-                    <input type="text" id="new-medium-label-{record_id}" placeholder="e.g., oil paint" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Getty AAT URI (optional)</label>
-                    <input type="text" id="new-medium-uri-{record_id}" placeholder="e.g., http://vocab.getty.edu/aat/300015050" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                </div>
-                <div style="display: flex; gap: 10px; align-items: end;">
-                    <div>
-                        <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Source</label>
-                        <select id="new-medium-source-{record_id}" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                            <option value="Getty AAT">Getty AAT</option>
-                            <option value="Manual">Manual/Other</option>
-                        </select>
-                    </div>
-                    <button class="add-btn" onclick="addCustomMediumTerm({record_id})" style="height: 38px;">Add Term</button>
-                </div>
-            </div>
+        <div class="field-group" style="margin: 10px 0 15px 0;">
+            <div class="field-label">Genre <span class="edit-indicator"></span></div>
+            <input type="text" class="field-input"
+                id="field-{record_id}-genre"
+                value="{genre_value}"
+                onchange="saveFieldValue({record_id}, 'genre', this.value)">
         </div>'''
-
-        # ==========================================
-        # SECTION 4: GENRE VOCABULARY (Getty AAT)
-        # ==========================================
-        html += '<div class="section-header" style="margin-top: 25px;">Genre Vocabulary (Getty AAT)</div>'
         html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Official Getty AAT terms for the drawing type/genre. Derived from the Genre field above.</p>'
 
         final_genre_terms = analysis.get('final_selected_genre_terms', [])
@@ -1823,7 +1791,7 @@ class HTMLReviewBuilder:
             if other_genre_terms:
                 other_genre_content_id = f"other-genre-content-{record_id}"
                 html += f'''<div class="collapsible-toggle" onclick="toggleSection('{other_genre_content_id}', this)" role="button">
-                    <span class="toggle-label">Alternative Genre Options</span>
+                    <span class="toggle-label">Alternative Genre Options - click to expand</span>
                     <span class="term-count-badge">{len(other_genre_terms)} available from vocabulary search</span>
                     <span class="chevron">&#9660;</span>
                 </div>
@@ -1854,10 +1822,119 @@ class HTMLReviewBuilder:
                     </div>'''
                 html += '</div></div></div>'
 
-        # Custom subject headings container and add form
-        html += f'''
-        <div class="vocab-group" style="margin-top: 15px;">
-            <div class="vocab-group-title">Add Custom Subject Heading</div>
+        # ==========================================
+        # SECTION 4: CHRONOLOGICAL TERMS (FAST)
+        # ==========================================
+        html += '<div class="section-header" style="margin-top: 25px;">Chronological Terms</div>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">FAST chronological terms generated automatically from the Date on Drawing field.</p>'
+
+        chrono_terms = analysis.get('chronological_vocabulary_terms', [])
+        if chrono_terms:
+            html += '<div class="vocab-group">'
+            html += '''<div class="vocab-group-title">Selected Chronological Terms <span style="font-weight: normal; font-size: 12px; color: #666;">(auto-accepted; reject if not applicable)</span></div>'''
+            for i, term in enumerate(chrono_terms):
+                term_id = f"chrono-selected-{i}"
+                label = self.escape_html(term.get('label', ''))
+                uri = term.get('uri', '')
+                source = term.get('source', 'FAST Chronological')
+                uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+                html += f'''
+                <div class="vocab-term approved" id="term-{record_id}-{term_id}" data-default="approved" data-group="chrono-selected" data-category="chrono-term">
+                    <span class="vocab-term-label">{label}</span>
+                    {uri_html}
+                    <span class="vocab-term-source fast">{source}</span>
+                    <div class="term-actions">
+                        <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')">Reject</button>
+                        <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')" style="display:none;">Restore</button>
+                    </div>
+                </div>'''
+            html += '</div>'
+        else:
+            html += '<div class="vocab-group"><p style="color: #999; font-style: italic;">No chronological terms (no date found on drawing)</p></div>'
+
+        # ==========================================
+        # SECTION 5: FORMAT/MEDIA VOCABULARY (Getty AAT)
+        # ==========================================
+        html += '<div class="section-header" style="margin-top: 25px;">Format/Media Vocabulary (Getty AAT)</div>'
+        html += '<p style="font-size: 12px; color: #666; margin: 5px 0 15px 0;">Select all Getty AAT terms that apply to this drawing\'s medium and support. URIs link to the official Getty AAT record.</p>'
+
+        # --- Medium (drawing materials) ---
+        medium_content_id = f"medium-terms-content-{record_id}"
+        html += f'''<div class="collapsible-toggle" onclick="toggleSection('{medium_content_id}', this)" role="button">
+            <span class="toggle-label">Medium - click to expand</span>
+            <span class="term-count-badge">{len(MEDIUM_TERMS)} drawing/inscribing/coloring materials</span>
+            <span class="chevron">&#9660;</span>
+        </div>
+        <div class="collapsible-content" id="{medium_content_id}" style="display:none;">
+        <div class="vocab-group" style="border: 1px dashed #ccc; border-top: none; border-radius: 0 0 5px 5px; margin-top: 0; padding-top: 8px;">
+        <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">Click Add to select all medium terms that apply.</p>'''
+        html += '<div class="other-terms-grid">'
+        for i, term in enumerate(MEDIUM_TERMS):
+            term_id = f"medium-curated-{i}"
+            label = self.escape_html(term.get('label', ''))
+            uri = term.get('uri', '')
+            uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+            html += f'''
+            <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="medium-curated" data-category="medium-term">
+                <div class="card-header">
+                    <span class="vocab-term-label">{label}</span>
+                    <div class="card-badges">
+                        {uri_html}
+                        <span class="vocab-term-source aat">Getty AAT</span>
+                    </div>
+                </div>
+                <div class="term-actions">
+                    <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
+                    <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
+                </div>
+            </div>'''
+        html += '</div></div></div>'
+
+        # --- Support (base/carrier material) ---
+        support_content_id = f"support-terms-content-{record_id}"
+        html += f'''<div class="collapsible-toggle" onclick="toggleSection('{support_content_id}', this)" role="button" style="margin-top: 12px;">
+            <span class="toggle-label">Support - click to expand</span>
+            <span class="term-count-badge">{len(SUPPORT_TERMS)} base/carrier materials</span>
+            <span class="chevron">&#9660;</span>
+        </div>
+        <div class="collapsible-content" id="{support_content_id}" style="display:none;">
+        <div class="vocab-group" style="border: 1px dashed #ccc; border-top: none; border-radius: 0 0 5px 5px; margin-top: 0; padding-top: 8px;">
+        <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">Click Add to select all support terms that apply.</p>'''
+        html += '<div class="other-terms-grid">'
+        for i, term in enumerate(SUPPORT_TERMS):
+            term_id = f"support-curated-{i}"
+            label = self.escape_html(term.get('label', ''))
+            uri = term.get('uri', '')
+            uri_html = f'<a href="{uri}" target="_blank" class="term-uri" title="{uri}">URI</a>' if uri else ''
+            html += f'''
+            <div class="vocab-term" id="term-{record_id}-{term_id}" data-default="none" data-group="support-curated" data-category="medium-term">
+                <div class="card-header">
+                    <span class="vocab-term-label">{label}</span>
+                    <div class="card-badges">
+                        {uri_html}
+                        <span class="vocab-term-source aat">Getty AAT</span>
+                    </div>
+                </div>
+                <div class="term-actions">
+                    <button class="term-btn approve" onclick="setTermStatus({record_id}, '{term_id}', 'approved')">Add</button>
+                    <button class="term-btn reject" onclick="setTermStatus({record_id}, '{term_id}', 'rejected')" style="display:none;">Remove</button>
+                </div>
+            </div>'''
+        html += '</div></div></div>'
+
+        # ==========================================
+        # SECTION 6: ADD CUSTOM TERMS (subject heading / format-media)
+        # ==========================================
+        html += '<div class="section-header" style="margin-top: 25px;">Add Custom Subject Heading or Format/Media Term</div>'
+
+        # --- Custom subject heading form (collapsible) ---
+        custom_subject_content_id = f"custom-subject-form-content-{record_id}"
+        html += f'''<div class="collapsible-toggle" onclick="toggleSection('{custom_subject_content_id}', this)" role="button">
+            <span class="toggle-label">Add Custom Subject Heading - click to expand</span>
+            <span class="chevron">&#9660;</span>
+        </div>
+        <div class="collapsible-content" id="{custom_subject_content_id}" style="display:none;">
+        <div class="vocab-group" style="border: 1px dashed #ccc; border-top: none; border-radius: 0 0 5px 5px; margin-top: 0; padding-top: 8px;">
             <div id="custom-terms-container-{record_id}"></div>
             <div class="add-term-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
                 <div>
@@ -1875,7 +1952,6 @@ class HTMLReviewBuilder:
                             <option value="LCSH">LCSH</option>
                             <option value="FAST">FAST</option>
                             <option value="Getty AAT">Getty AAT</option>
-                            <option value="Getty TGN">Getty TGN</option>
                             <option value="Manual">Manual/Other</option>
                         </select>
                     </div>
@@ -1883,7 +1959,39 @@ class HTMLReviewBuilder:
                 </div>
             </div>
         </div>
-        '''
+        </div>'''
+
+        # --- Custom Format/Media term form (collapsible) ---
+        custom_medium_content_id = f"custom-medium-form-content-{record_id}"
+        html += f'''<div class="collapsible-toggle" onclick="toggleSection('{custom_medium_content_id}', this)" role="button" style="margin-top: 12px;">
+            <span class="toggle-label">Add Custom Format/Media Term - click to expand</span>
+            <span class="chevron">&#9660;</span>
+        </div>
+        <div class="collapsible-content" id="{custom_medium_content_id}" style="display:none;">
+        <div class="vocab-group" style="border: 1px dashed #ccc; border-top: none; border-radius: 0 0 5px 5px; margin-top: 0; padding-top: 8px;">
+            <div id="custom-medium-terms-container-{record_id}"></div>
+            <div class="add-term-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                <div>
+                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Term Label *</label>
+                    <input type="text" id="new-medium-label-{record_id}" placeholder="e.g., oil paint" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Getty AAT URI (optional)</label>
+                    <input type="text" id="new-medium-uri-{record_id}" placeholder="e.g., http://vocab.getty.edu/aat/300015050" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div style="display: flex; gap: 10px; align-items: end;">
+                    <div>
+                        <label style="font-size: 12px; color: #666; display: block; margin-bottom: 3px;">Source</label>
+                        <select id="new-medium-source-{record_id}" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="Getty AAT">Getty AAT</option>
+                            <option value="Manual">Manual/Other</option>
+                        </select>
+                    </div>
+                    <button class="add-btn" onclick="addCustomMediumTerm({record_id})" style="height: 38px;">Add Term</button>
+                </div>
+            </div>
+        </div>
+        </div>'''
 
         html += '</div>'
         return html
@@ -1895,6 +2003,8 @@ class HTMLReviewBuilder:
         image_filename = os.path.basename(image_path)
         page_number = record.get('page_number', global_id)
 
+        is_error_record = str(analysis.get('title', '')).startswith('Error:')
+
         # Store record data for export
         record_data_js = f'''
         <script>
@@ -1905,9 +2015,13 @@ class HTMLReviewBuilder:
         </script>
         '''
 
+        error_class = ' error-record' if is_error_record else ''
+        error_notice = f'<div class="error-notice">&#9888; This record failed during image analysis (API error). All fields are empty. Re-run Step 1.5 to reprocess this image: <code>{self.escape_html(image_filename)}</code></div>' if is_error_record else ''
+
         html = f'''
-        <div class="record" id="record-{global_id}">
+        <div class="record{error_class}" id="record-{global_id}">
             {record_data_js}
+            {error_notice}
             <div class="record-header">
                 <div class="record-title">Record {global_id}: {self.escape_html(analysis.get('title', 'Untitled'))}</div>
             </div>
@@ -1928,10 +2042,9 @@ class HTMLReviewBuilder:
                     <div class="section-header">Metadata Fields</div>
         '''
 
-        # Text fields
+        # Text fields (genre is rendered in the vocabulary section, above its Getty AAT terms)
         fields = [
             ('title', 'Title', 'text'),
-            ('genre', 'Genre', 'text'),
             ('description', 'Description', 'textarea-large'),
             ('date_on_drawing', 'Date on Drawing', 'text'),
             ('sheet_info', 'Sheet Info', 'textarea'),
@@ -2225,19 +2338,32 @@ class HTMLReviewBuilder:
 
 def main():
     """Main entry point."""
+    import argparse
+    parser = argparse.ArgumentParser(description='Step 5: Create Interactive HTML Review Interface')
+    parser.add_argument('--folder', '-f', default=None,
+                        help='Output folder path (default: newest folder in output_folders)')
+    args = parser.parse_args()
+
     print("Step 5: Create Interactive HTML Review Interface")
     print("=" * 60)
 
-    # Find newest output folder
-    base_output_dir = os.path.join(script_dir, "output_folders")
-    folder_path = find_newest_folder(base_output_dir)
+    if args.folder:
+        folder_path = args.folder
+        if not os.path.exists(folder_path):
+            print(f"Error: Folder not found: {folder_path}")
+            return 1
+        print(f"Using folder: {os.path.basename(folder_path)}")
+    else:
+        # Find newest output folder
+        base_output_dir = os.path.join(script_dir, "output_folders")
+        folder_path = find_newest_folder(base_output_dir)
 
-    if not folder_path:
-        print(f"No output folders found in: {base_output_dir}")
-        print("Please run Steps 1-4 first to generate workflow data.")
-        return 1
+        if not folder_path:
+            print(f"No output folders found in: {base_output_dir}")
+            print("Please run Steps 1-4 first to generate workflow data.")
+            return 1
 
-    print(f"Auto-selected newest folder: {os.path.basename(folder_path)}")
+        print(f"Auto-selected newest folder: {os.path.basename(folder_path)}")
 
     # Create builder and run
     builder = HTMLReviewBuilder(folder_path, records_per_page=10)

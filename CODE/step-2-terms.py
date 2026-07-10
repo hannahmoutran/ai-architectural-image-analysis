@@ -610,6 +610,18 @@ class FASTTermFinder:
                 if paren_index > 0:
                     search_term = name[:paren_index].strip()
 
+            # Bare initials (e.g. "J.D.H." or "JDH") cannot be meaningfully matched —
+            # fuzzy search returns unrelated records, so skip the lookup entirely
+            alpha_chunks = re.findall(r'[A-Za-z]+', search_term)
+            is_initials = bool(alpha_chunks) and (
+                all(len(chunk) == 1 for chunk in alpha_chunks) or
+                (len(alpha_chunks) == 1 and alpha_chunks[0].isupper() and len(alpha_chunks[0]) <= 3)
+            )
+            if is_initials:
+                print(f"   Skipping FAST name lookup for '{name}' (initials only — no reliable match possible)")
+                results[name] = []
+                continue
+
             # Reuse the existing search, limit to 1 result
             fast_results = self.search(search_term, name)[:1]
             results[name] = fast_results
@@ -1190,12 +1202,24 @@ class ArchitecturalDrawingsEnhancer:
         return sorted(list(all_genre_terms))
 
     def process_genre_lookup(self, genre_terms: List[str]) -> Dict[str, List[Dict]]:
-        """Look up genre terms in Getty AAT only."""
+        """Look up genre terms in Getty AAT only.
+
+        AAT genre records are typically plural drawing types (e.g. "elevations
+        (drawings)", "site plans (drawings)"), so search with "drawings" appended
+        first, falling back to the plain genre term if that yields nothing.
+        """
         genre_to_terms_json = {}
         print(f"\nProcessing genre Getty AAT lookup...")
         for i, term in enumerate(genre_terms, 1):
-            print(f"  Genre {i}/{len(genre_terms)}: '{term}'")
-            aat_results = self.getty_finder.search_aat(term, topic=f"[genre] {term}")
+            if 'drawing' in term.lower():
+                search_query = term
+            else:
+                search_query = f"{term} drawings"
+            print(f"  Genre {i}/{len(genre_terms)}: '{term}' (searching '{search_query}')")
+            aat_results = self.getty_finder.search_aat(search_query, topic=f"[genre] {term}")
+            if not aat_results and search_query != term:
+                print(f"     No results for '{search_query}' — retrying with '{term}'")
+                aat_results = self.getty_finder.search_aat(term, topic=f"[genre] {term}")
             formatted = self.format_results_for_json(aat_results)
             genre_to_terms_json[term] = formatted
             if formatted:
@@ -1237,69 +1261,14 @@ class ArchitecturalDrawingsEnhancer:
 
         return contributor_to_terms
 
-    def extract_medium_support_terms(self) -> tuple[List[str], List[str]]:
-        """Extract all unique medium and support terms from the JSON data."""
-        all_medium_terms = set()
-        all_support_terms = set()
-
-        data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
-
-        for item in data_items:
-            if 'analysis' in item:
-                medium_data = item['analysis'].get('medium', '')
-                if medium_data and medium_data.strip():
-                    for term in medium_data.split(';'):
-                        term = term.strip()
-                        if term:
-                            all_medium_terms.add(term)
-
-                support_data = item['analysis'].get('support', '')
-                if support_data and support_data.strip():
-                    for term in support_data.split(';'):
-                        term = term.strip()
-                        if term:
-                            all_support_terms.add(term)
-
-        return sorted(list(all_medium_terms)), sorted(list(all_support_terms))
-
-    def process_medium_support_lookup(self, medium_terms: List[str], support_terms: List[str]) -> tuple[Dict[str, List[Dict]], Dict[str, List[Dict]]]:
-        """Look up medium and support terms in Getty AAT only."""
-        medium_to_terms_json = {}
-        support_to_terms_json = {}
-
-        print(f"\nProcessing medium/support Getty AAT lookup...")
-
-        for i, term in enumerate(medium_terms, 1):
-            print(f"  Medium {i}/{len(medium_terms)}: '{term}'")
-            aat_results = self.getty_finder.search_aat(term, topic=f"[medium] {term}")
-            formatted = self.format_results_for_json(aat_results)
-            medium_to_terms_json[term] = formatted
-            if formatted:
-                print(f"     Found {len(formatted)} AAT terms")
-            else:
-                print(f"     No AAT terms found")
-
-        for i, term in enumerate(support_terms, 1):
-            print(f"  Support {i}/{len(support_terms)}: '{term}'")
-            aat_results = self.getty_finder.search_aat(term, topic=f"[support] {term}")
-            formatted = self.format_results_for_json(aat_results)
-            support_to_terms_json[term] = formatted
-            if formatted:
-                print(f"     Found {len(formatted)} AAT terms")
-            else:
-                print(f"     No AAT terms found")
-
-        return medium_to_terms_json, support_to_terms_json
-
     def get_chronological_terms_from_year(self, year: int) -> List[str]:
         """Generate chronological terms for a specific year."""
         chronological_terms = []
 
-        # Determine decade and century
+        # Determine decade
         decade = (year // 10) * 10  # e.g., 1923 -> 1920
-        century = 19 if year < 1900 else 20
 
-        # Map decades to LCSH spelled-out format
+        # Map decades to FAST/LCSH spelled-out format
         decade_mapping = {
             1850: "Eighteen fifties",
             1860: "Eighteen sixties",
@@ -1315,19 +1284,24 @@ class ArchitecturalDrawingsEnhancer:
             1960: "Nineteen sixties",
             1970: "Nineteen seventies",
             1980: "Nineteen eighties",
-            1990: "Nineteen nineties"
+            1990: "Nineteen nineties",
+            2000: "Two thousands (Decade)",  # 2000-2009
+            2010: "Two thousand tens",
+            2020: "Two thousand twenties"
         }
 
         # Add decade term
-        lcsh_decade = decade_mapping.get(decade)
-        if lcsh_decade:
-            chronological_terms.append(lcsh_decade)
+        decade_term = decade_mapping.get(decade)
+        if decade_term:
+            chronological_terms.append(decade_term)
 
-        # Add architecture-specific century term
-        if century == 19:
-            chronological_terms.append("Architecture--United States--History--19th century")
-        elif century == 20:
-            chronological_terms.append("Architecture--United States--History--20th century")
+        # Add century term
+        if year < 1900:
+            chronological_terms.append("Nineteenth century")
+        elif year < 2000:
+            chronological_terms.append("Twentieth century")
+        else:
+            chronological_terms.append("Twenty-first century")
 
         return chronological_terms
 
@@ -1337,6 +1311,7 @@ class ArchitecturalDrawingsEnhancer:
         Handles formats like:
         - Folder names: "1923-10-24"
         - Date strings: "April 22nd 1895", "1895", "22 April 1895"
+        - Two-digit years in dates: "4-12-51", "4/12/51", "April '51"
         """
         if not text:
             return None
@@ -1345,6 +1320,17 @@ class ArchitecturalDrawingsEnhancer:
         year_match = re.search(r'\b(18\d{2}|19\d{2}|20\d{2})\b', text)
         if year_match:
             return int(year_match.group(1))
+
+        # Two-digit year as the last component of a dated pattern, e.g. "4-12-51"
+        two_digit_match = re.search(r'\b\d{1,2}[-/.]\d{1,2}[-/.](\d{2})\b', text)
+        if not two_digit_match:
+            # Apostrophe year, e.g. "April '51"
+            two_digit_match = re.search(r"'(\d{2})\b", text)
+        if two_digit_match:
+            # Two-digit years on drawings in this archive predate 2000
+            # (post-2000 title blocks use 4-digit years)
+            return 1900 + int(two_digit_match.group(1))
+
         return None
 
     def get_chronological_terms_for_folder(self, folder_name: str) -> List[str]:
@@ -1444,70 +1430,56 @@ class ArchitecturalDrawingsEnhancer:
             # Store results for this specific geographic entity
             geographic_to_terms_display[entity] = formatted_terms_display
             geographic_to_terms_json[entity] = formatted_terms_json
-        
-            # Process chronological terms - search LCSH for actual URIs with quoted searches
-            chronological_to_terms_display = {}
-            chronological_to_terms_json = {}
 
-            for chronological_term in chronological_terms:
-                print(f"\nProcessing chronological term: '{chronological_term}'")
-                
-                # Search LCSH for this chronological term with quotes for exact match
-                quoted_term = f'"{chronological_term}"'  # Add quotes for exact matching
-                lcsh_results = self.lcsh_finder.find_terms([quoted_term])
-                
-                if quoted_term in lcsh_results and lcsh_results[quoted_term]:
-                    # Found LCSH term with URI using quoted search
-                    lcsh_terms = lcsh_results[quoted_term][:1]  # Only take 1 term
-                    
-                    # Update the label to remove quotes from display
-                    for term in lcsh_terms:
-                        term['label'] = chronological_term  # Use original unquoted term for display
-                    
-                    # Format results for this chronological term
-                    formatted_terms_display = self.format_results_for_display(lcsh_terms)
-                    formatted_terms_json = self.format_results_for_json(lcsh_terms)
-                    
-                    chronological_to_terms_display[chronological_term] = formatted_terms_display
-                    chronological_to_terms_json[chronological_term] = formatted_terms_json
-                    
-                    print(f"   Found LCSH chronological term with URI (quoted search): {chronological_term}")
-                else:
-                    # If quoted search fails, try without quotes as fallback
-                    lcsh_results_unquoted = self.lcsh_finder.find_terms([chronological_term])
-                    
-                    if chronological_term in lcsh_results_unquoted and lcsh_results_unquoted[chronological_term]:
-                        # Found with unquoted search
-                        lcsh_terms = lcsh_results_unquoted[chronological_term][:1]  # Only take 1 term
-                        
-                        # Format results for this chronological term
-                        formatted_terms_display = self.format_results_for_display(lcsh_terms)
-                        formatted_terms_json = self.format_results_for_json(lcsh_terms)
-                        
-                        chronological_to_terms_display[chronological_term] = formatted_terms_display
-                        chronological_to_terms_json[chronological_term] = formatted_terms_json
-                        
-                        print(f"   Found LCSH chronological term with URI (unquoted fallback): {chronological_term}")
-                    else:
-                        # Fallback: create term without URI if not found in LCSH at all
-                        term_object = {
-                            'label': chronological_term,
-                            'uri': '',  # No URI available
-                            'source': 'LCSH Chronological (generated)',
-                            'description': 'Generated chronological term for collection',
-                            'type': 'chronological'
-                        }
-                        
-                        # Format for Excel and JSON
-                        formatted_excel = f"{chronological_term} [{term_object['source']}]"
-                        formatted_json = [term_object]
-                        
-                        chronological_to_terms_display[chronological_term] = formatted_terms_display
-                        chronological_to_terms_json[chronological_term] = formatted_json
-                        
-                        print(f"   Created chronological term without URI: {chronological_term}")
-        
-        return (subject_to_terms_display, subject_to_terms_json, 
+        # Process chronological terms - search FAST for authoritative URIs
+        chronological_to_terms_display = {}
+        chronological_to_terms_json = {}
+
+        for chronological_term in chronological_terms:
+            print(f"\nProcessing chronological term: '{chronological_term}'")
+
+            # Strip parenthetical qualifier for the query, e.g.
+            # "Nineteen hundreds (Decade)" → "Nineteen hundreds" (FAST suggest
+            # returns nothing when the qualifier is included in the query)
+            search_term = chronological_term
+            if '(' in search_term and search_term.endswith(')'):
+                paren_index = search_term.rfind('(')
+                if paren_index > 0:
+                    search_term = search_term[:paren_index].strip()
+
+            fast_results = self.fast_finder.search(search_term, chronological_term)
+
+            # Only accept an exact label match — fuzzy results can return the
+            # wrong decade/century via FAST alt forms (e.g. a "Twentieth century"
+            # query surfaces "Nineteen sixties" first)
+            fast_terms = [t for t in fast_results
+                          if t.get('label', '').strip().lower() == chronological_term.lower()][:1]
+
+            if fast_terms:
+                for term in fast_terms:
+                    term['source'] = 'FAST Chronological'
+                    term['type'] = 'chronological'
+
+                chronological_to_terms_display[chronological_term] = self.format_results_for_display(fast_terms)
+                chronological_to_terms_json[chronological_term] = self.format_results_for_json(fast_terms)
+
+                print(f"   Found FAST chronological term: {fast_terms[0].get('label', chronological_term)}")
+            else:
+                # Fallback: keep the generated term without a URI if FAST has no match
+                term_object = {
+                    'label': chronological_term,
+                    'uri': '',  # No URI available
+                    'source': 'FAST Chronological (generated)',
+                    'description': 'Generated chronological term for collection',
+                    'type': 'chronological'
+                }
+
+                chronological_to_terms_display[chronological_term] = f"{chronological_term} [{term_object['source']}]"
+                chronological_to_terms_json[chronological_term] = [term_object]
+
+                print(f"   No FAST match - created chronological term without URI: {chronological_term}")
+
+        return (subject_to_terms_display, subject_to_terms_json,
             geographic_to_terms_display, geographic_to_terms_json,
             chronological_to_terms_display, chronological_to_terms_json)
     
@@ -1557,11 +1529,9 @@ class ArchitecturalDrawingsEnhancer:
     def enhance_json_file(self, subject_to_terms_json: Dict[str, List[Dict[str, str]]],
                     geographic_to_terms_json: Dict[str, List[Dict[str, str]]],
                     chronological_to_terms_json: Dict[str, List[Dict[str, str]]],
-                    medium_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
-                    support_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
                     genre_to_terms_json: Dict[str, List[Dict[str, str]]] = None,
                     contributor_to_terms_json: Dict[str, List[Dict[str, str]]] = None) -> bool:
-        """Add vocabulary search results to JSON file with topic-to-terms, geographic-to-terms, chronological terms, medium/support mapping, and genre mapping."""
+        """Add vocabulary search results to JSON file with topic-to-terms, geographic-to-terms, chronological terms, and genre mapping."""
         try:
             # Skip the last item if it's API stats
             data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
@@ -1615,25 +1585,6 @@ class ArchitecturalDrawingsEnhancer:
                         if chrono_term in chronological_to_terms_json and chronological_to_terms_json[chrono_term]:
                             item_chronological_vocab_terms.extend(chronological_to_terms_json[chrono_term])
 
-                    # Build medium/support vocabulary search results for this item
-                    medium_vocab_results = {}
-                    if medium_to_terms_json or support_to_terms_json:
-                        # Get medium terms for this item
-                        item_medium = item['analysis'].get('medium', '')
-                        item_support = item['analysis'].get('support', '')
-
-                        if item_medium:
-                            for term in item_medium.split(';'):
-                                term = term.strip()
-                                if term and medium_to_terms_json and term in medium_to_terms_json and medium_to_terms_json[term]:
-                                    medium_vocab_results[term] = medium_to_terms_json[term].copy()
-
-                        if item_support:
-                            for term in item_support.split(';'):
-                                term = term.strip()
-                                if term and support_to_terms_json and term in support_to_terms_json and support_to_terms_json[term]:
-                                    medium_vocab_results[term] = support_to_terms_json[term].copy()
-
                     # Build genre vocabulary search results for this item
                     genre_vocab_results = {}
                     if genre_to_terms_json:
@@ -1660,14 +1611,13 @@ class ArchitecturalDrawingsEnhancer:
                     # Add all mappings to the analysis
                     item['analysis']['vocabulary_search_results'] = topic_to_terms
                     item['analysis']['geographic_vocabulary_search_results'] = geographic_to_terms
-                    item['analysis']['medium_vocabulary_search_results'] = medium_vocab_results
                     item['analysis']['genre_vocabulary_search_results'] = genre_vocab_results
                     item['analysis']['contributor_vocabulary_search_results'] = contributor_vocab_results
                     # Add chronological terms from date on drawing
                     item['analysis']['chronological_vocabulary_terms'] = item_chronological_vocab_terms
                     item['analysis']['chronological_vocabulary_search_results'] = drawing_chronological_terms
 
-                    if topic_to_terms or geographic_to_terms or item_chronological_vocab_terms or medium_vocab_results or genre_vocab_results:
+                    if topic_to_terms or geographic_to_terms or item_chronological_vocab_terms or genre_vocab_results:
                         processed_items += 1
                 
                 enhanced_items.append(item)

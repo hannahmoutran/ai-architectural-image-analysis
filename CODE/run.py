@@ -9,7 +9,7 @@ Usage:
     python run.py              # Run the pipeline
     python run.py --config     # Show current configuration
 
-Note: integrate-archivist-edits.py must be run standalone after archivist review.
+Note: step-6-integrate-archivist-edits.py must be run standalone after archivist review.
 
 Configure settings in config.py before running.
 """
@@ -23,7 +23,7 @@ from datetime import datetime
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
-from config import get_step1_config, get_step3_config, get_image_folders, print_current_config, OPENAI_USE_PORTKEY
+from config import get_step1_config, get_step3_config, get_image_folders, print_current_config, OPENAI_USE_PORTKEY, CREATE_HTML_REVIEW
 
 
 def find_output_folder_for_image_folder(image_folder_name):
@@ -97,8 +97,8 @@ def run_step(step_num, env_overrides=None, image_folder=None, output_folder=None
         step_desc = "Entity Report Creation"
 
     elif step_num == 'html':
-        script_name = "html-review.py"
-        step_desc = "HTML Review Interface (Optional)"
+        script_name = "step-5-html-review.py"
+        step_desc = "HTML Review Interface"
 
     else:
         print(f"Unknown step: {step_num}")
@@ -163,6 +163,10 @@ def interactive_menu():
     print("  Step 2: Vocabulary Lookup (LCSH, FAST, Getty terms)")
     print("  Step 3: Vocabulary Selection (AI-powered term selection)")
     print("  Step 4: Entity Report Creation")
+    if CREATE_HTML_REVIEW:
+        print("  Step 5: HTML Review Interface (CREATE_HTML_REVIEW=True in config.py)")
+    else:
+        print("  (HTML review skipped — set CREATE_HTML_REVIEW=True in config.py to enable)")
     print()
 
     response = input("Proceed? [y/n]: ").strip().lower()
@@ -182,11 +186,7 @@ def interactive_menu():
         if use_batch:
             print("Batch processing enabled.")
 
-    print()
-    html_response = input("Do you want to create the HTML review interface? [y/n]: ").strip().lower()
-    include_html = html_response in ('y', 'yes')
-
-    return [1, 2, 3, 4], include_html, use_batch
+    return [1, 2, 3, 4], CREATE_HTML_REVIEW, use_batch
 
 
 def main():

@@ -4,7 +4,7 @@ Batch Evaluator Reports
 =======================
 
 Processes all decisions JSONs for a given evaluator, automatically finding the
-correct pipeline output folder for each one and running integrate-archivist-edits.py
+correct pipeline output folder for each one and running step-6-integrate-archivist-edits.py
 in analysis-only mode.
 
 Usage:
@@ -77,8 +77,8 @@ def collect_decisions_files(evaluator_folder):
 
 
 def run_one(decisions_path, results_folder, evaluator_name, output_folder):
-    """Call integrate-archivist-edits.py for one decisions file."""
-    integrate_script = os.path.join(script_dir, "integrate-archivist-edits.py")
+    """Call step-6-integrate-archivist-edits.py for one decisions file."""
+    integrate_script = os.path.join(script_dir, "step-6-integrate-archivist-edits.py")
 
     cmd = [
         sys.executable, integrate_script,

@@ -29,6 +29,60 @@ api_stats = APIStats()
 _provider = None
 _client = None
 
+CALIBRATION_EXAMPLES_FILENAME = "collection-examples.txt"
+
+
+def read_calibration_examples(input_folder: str):
+    """Return the contents of collection-examples.txt if it exists in input_folder."""
+    path = os.path.join(input_folder, CALIBRATION_EXAMPLES_FILENAME)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception as e:
+        logging.warning(f"Could not read calibration examples: {e}")
+        return None
+
+
+def format_collection_examples(examples_text: str, style_analysis: str = "") -> str:
+    """Format calibration examples and optional style guide for prompt injection."""
+    parts = [
+        "COLLECTION-SPECIFIC STYLE GUIDE AND EXAMPLES:",
+        "The following are actual drawings from this collection that an archivist has reviewed and approved.",
+        "Use them as a reference for writing style, level of detail, terminology, and formatting.\n",
+    ]
+    if style_analysis:
+        parts.append(f"STYLE GUIDE (derived from archivist edits):\n{style_analysis}\n")
+    parts.append(f"ARCHIVIST-APPROVED EXAMPLES:\n{examples_text}")
+    return "\n".join(parts)
+
+
+_STYLE_GUIDE_MARKER = "\n# STYLE GUIDE\n"
+
+
+def _split_calibration_file(text: str) -> tuple[str, str]:
+    """Split collection-examples.txt into (examples_text, style_guide_text).
+
+    Returns the raw examples section and the editable style guide section separately.
+    If no embedded style guide is found, style_guide_text is "".
+    """
+    if _STYLE_GUIDE_MARKER not in text:
+        return text, ""
+
+    examples_part, rest = text.split(_STYLE_GUIDE_MARKER, 1)
+
+    # Strip the header comment lines ("# Generated...", "# ===...") from the style guide block
+    rest_lines = rest.split('\n')
+    content_start = 0
+    for i, line in enumerate(rest_lines):
+        if not line.startswith('#') and line.strip() != '':
+            content_start = i
+            break
+
+    style_guide = '\n'.join(rest_lines[content_start:]).strip()
+    return examples_part.rstrip(), style_guide
+
 
 class SimpleUsage:
     """Normalized token usage object, always uses input_tokens/output_tokens."""
@@ -162,6 +216,57 @@ def _call_api(image_path, model_name, prompt):
         return response.text.strip(), SimpleUsage(input_tokens, output_tokens)
 
 
+def _call_text_api(prompt: str, model_name: str):
+    """Make a text-only API call using the initialized provider. Returns (text, SimpleUsage)."""
+    if _provider == "claude":
+        response = _client.messages.create(
+            model=model_name,
+            max_tokens=4000,
+            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+        )
+        return response.content[0].text.strip(), SimpleUsage(response.usage.input_tokens, response.usage.output_tokens)
+
+    elif _provider == "openai":
+        if OPENAI_USE_PORTKEY:
+            response = _client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4000,
+                temperature=0.3
+            )
+            return response.choices[0].message.content.strip(), SimpleUsage(response.usage.prompt_tokens, response.usage.completion_tokens)
+        else:
+            response = _client.responses.create(
+                model=model_name,
+                input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+                max_output_tokens=4000,
+                temperature=0.3
+            )
+            return response.output_text.strip(), SimpleUsage(response.usage.input_tokens, response.usage.output_tokens)
+
+    elif _provider == "gemini":
+        from google.genai import types
+        response = _client.models.generate_content(
+            model=model_name,
+            contents=[types.Content(parts=[types.Part(text=prompt)])],
+            config=types.GenerateContentConfig(max_output_tokens=4000)
+        )
+        input_tokens = response.usage_metadata.prompt_token_count if response.usage_metadata else 0
+        output_tokens = response.usage_metadata.candidates_token_count if response.usage_metadata else 0
+        return response.text.strip(), SimpleUsage(input_tokens, output_tokens)
+
+
+def generate_style_analysis(examples_text: str, model_name: str) -> str:
+    """Call AI to derive a collection style guide from calibration examples. Returns empty string on failure."""
+    prompt = ArchitecturalDrawingPrompts.get_style_analysis_prompt(examples_text)
+    try:
+        text, _ = _call_text_api(prompt, model_name)
+        return text
+    except Exception as e:
+        logging.warning(f"Style analysis failed: {e}")
+        return ""
+
+
 def parse_json_response(raw_response):
     """JSON parsing with trailing comma handling."""
     return parse_json_response_enhanced(raw_response)
@@ -203,10 +308,10 @@ def parse_key_value_response(raw_response: str) -> tuple[dict, str]:
     for line in raw_response.split('\n'):
         found_field = False
 
-        # Strip markdown formatting for field detection
+        # Strip markdown formatting (headers, bullets/list markers, bold) for field detection
         cleaned_line = line.strip()
         cleaned_line = re.sub(r'^#+\s*', '', cleaned_line)
-        cleaned_line = re.sub(r'^\*+\s*', '', cleaned_line)
+        cleaned_line = re.sub(r'^[-*+•]+\s*', '', cleaned_line)
         cleaned_line = re.sub(r'\*+', '', cleaned_line)
         cleaned_line_lower = cleaned_line.lower()
 
@@ -300,7 +405,8 @@ def load_collection_context(input_folder: str = None) -> str:
         return ""
 
     txt_files = [f for f in os.listdir(input_folder)
-                 if f.lower().endswith('.txt') and os.path.isfile(os.path.join(input_folder, f))]
+                 if f.lower().endswith('.txt') and os.path.isfile(os.path.join(input_folder, f))
+                 and f != CALIBRATION_EXAMPLES_FILENAME]
 
     for txt_file in sorted(txt_files):
         txt_path = os.path.join(input_folder, txt_file)
@@ -359,12 +465,12 @@ def collect_all_images(input_folder):
     return all_images
 
 
-def prepare_batch_requests(all_images, model_name, collection_context=""):
+def prepare_batch_requests(all_images, model_name, collection_context="", collection_examples=""):
     """Prepare batch requests (OpenAI only). Uses Responses API format."""
     batch_requests = []
     custom_id_mapping = {}
 
-    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context)
+    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context, collection_examples)
 
     for i, (folder_name, page_number, img_path) in enumerate(all_images):
         with open(img_path, "rb") as image_file:
@@ -396,11 +502,12 @@ def prepare_batch_requests(all_images, model_name, collection_context=""):
 @tenacity.retry(
     wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),
     stop=tenacity.stop_after_attempt(3),
-    retry=tenacity.retry_if_exception_type(Exception)
+    retry=tenacity.retry_if_exception_type(Exception),
+    reraise=True
 )
-def process_image(image_path, model_name, collection_context=""):
+def process_image(image_path, model_name, collection_context="", collection_examples=""):
     """Process a single architectural drawing image and return the parsed response."""
-    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context)
+    prompt = ArchitecturalDrawingPrompts.get_architectural_drawing_prompt(collection_context, collection_examples)
 
     api_stats.total_requests += 1
     start_time = time.time()
@@ -416,8 +523,7 @@ def process_image(image_path, model_name, collection_context=""):
 
     if parsed_data:
         required_fields = ['title', 'contributors', 'genre', 'description',
-                           'formatMedia', 'medium', 'support', 'topics',
-                           'dateOnDrawing', 'sheetInfo', 'namedEntities',
+                           'topics', 'dateOnDrawing', 'sheetInfo', 'namedEntities',
                            'geographicEntities', 'contentWarning']
         for field in required_fields:
             if field not in parsed_data:
@@ -469,7 +575,7 @@ def create_result_entry(folder_name, page_number, img_path, response_data, raw_r
 
 
 def process_folder_individual(all_images, logs_folder_path, model_name, all_results,
-                               issues, collection_context=""):
+                               issues, collection_context="", collection_examples=""):
     """Process images using individual API calls."""
     items_with_issues = 0
     total_processing_time = 0
@@ -483,7 +589,7 @@ def process_folder_individual(all_images, logs_folder_path, model_name, all_resu
 
         try:
             response_data, raw_response, usage, processing_time = process_image(
-                img_path, model_name, collection_context
+                img_path, model_name, collection_context, collection_examples
             )
             total_processing_time += processing_time
 
@@ -532,7 +638,7 @@ def process_folder_individual(all_images, logs_folder_path, model_name, all_resu
             api_stats.total_input_tokens, api_stats.total_output_tokens, issues, False)
 
 
-def process_folder_with_batch(input_folder, output_dir, model_name, collection_context=""):
+def process_folder_with_batch(input_folder, output_dir, model_name, collection_context="", collection_examples=""):
     """Process folder. OpenAI uses batch when count >= threshold; others always individual."""
     logs_folder_path = os.path.join(output_dir, "logs")
     if not os.path.exists(logs_folder_path):
@@ -555,7 +661,7 @@ def process_folder_with_batch(input_folder, output_dir, model_name, collection_c
         if use_batch:
             print(f" Preparing {total_items} requests for batch processing...")
 
-            batch_requests, custom_id_mapping = prepare_batch_requests(all_images, model_name, collection_context)
+            batch_requests, custom_id_mapping = prepare_batch_requests(all_images, model_name, collection_context, collection_examples)
             cost_estimate = processor.estimate_batch_cost(batch_requests, model_name)
             print(f" Estimated cost: ${cost_estimate['batch_cost']:.4f} (${cost_estimate['savings']:.4f} savings)")
 
@@ -643,7 +749,7 @@ def process_folder_with_batch(input_folder, output_dir, model_name, collection_c
         print(f"Model: {model_name}")
 
     return process_folder_individual(all_images, logs_folder_path, model_name, all_results,
-                                     issues, collection_context)
+                                     issues, collection_context, collection_examples)
 
 
 def main():
@@ -670,6 +776,25 @@ def main():
         print(f"Collection context: {input_folder_name}")
     print(f"Using input folder: image_folders/{input_folder_name}")
 
+    # Load calibration examples and style guide if available
+    raw_file = read_calibration_examples(input_folder)
+    collection_examples = ""
+    if raw_file:
+        examples_text, embedded_style = _split_calibration_file(raw_file)
+        if embedded_style:
+            print(f"\nCalibration examples with embedded style guide found.")
+            collection_examples = format_collection_examples(examples_text, embedded_style)
+        else:
+            print(f"\nCalibration examples found — generating style analysis...")
+            style_analysis = generate_style_analysis(raw_file, model_name)
+            if style_analysis:
+                print(f"Style analysis complete.")
+            else:
+                print(f"Style analysis unavailable — using examples only.")
+                style_analysis = ""
+            collection_examples = format_collection_examples(raw_file, style_analysis)
+        print(f"Archivist style guide will be applied to all images in this run.\n")
+
     current_date = datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.now().strftime("%H-%M-%S")
     folder_name = f"ArchImagesAI_{input_folder_name}_{model_name}_{current_date}_Time_{current_time}"
@@ -686,7 +811,7 @@ def main():
 
     (all_results, api_stats, total_items, items_with_issues, total_processing_time,
      total_prompt_tokens, total_completion_tokens, issues, was_batch_processed) = process_folder_with_batch(
-        input_folder, output_dir, model_name, collection_context
+        input_folder, output_dir, model_name, collection_context, collection_examples
     )
 
     api_summary = {

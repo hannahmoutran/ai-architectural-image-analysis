@@ -10,13 +10,27 @@ Please note that output folder name will be based on the model used in step 1
 # =============================================================================
 # Option 1: Process a SINGLE folder
 # Set IMAGE_FOLDER to process just one collection
-IMAGE_FOLDER = "ut-buildings"
+IMAGE_FOLDER = "charles-steven-Dilbeck"
 
 # Option 2: Process MULTIPLE folders
 # Set IMAGE_FOLDERS to a list of folder names to process them all sequentially
 # When IMAGE_FOLDERS is set (not None/empty), it takes precedence over IMAGE_FOLDER
 IMAGE_FOLDERS = None  # e.g., ["collection-1", "collection-2", "collection-3"]
-# IMAGE_FOLDERS = ["alfred-zucker", "charles-steven-dillbeck", "james-riely-gordon", "ut-buildings"]
+# IMAGE_FOLDERS = ["alfred-zucker", "charles-steven-Dilbeck", "james-riely-gordon", "ut-buildings"]
+
+# =============================================================================
+# CALIBRATION CONFIGURATION
+# =============================================================================
+# Number of sample images to process in Step 0 (calibration run).
+# These images will be reviewed by the archivist to create a style guide.
+CALIBRATION_COUNT = 1
+
+# =============================================================================
+# HTML REVIEW CONFIGURATION
+# =============================================================================
+# When True, run.py automatically generates the HTML review interface (Step 5)
+# after Steps 1-4 complete for each folder.
+CREATE_HTML_REVIEW = True
 
 # =============================================================================
 # MODEL CONFIGURATION

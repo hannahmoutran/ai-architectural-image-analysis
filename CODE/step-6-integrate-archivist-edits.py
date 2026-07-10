@@ -6,7 +6,7 @@ Integrate Archivist Edits into Workflow Outputs
 Processes archivist review decisions from exported JSON and updates all deliverable files.
 
 This script:
-1. Reads archivist decisions from JSON exports (created by html-review.py)
+1. Reads archivist decisions from JSON exports (created by step-5-html-review.py)
 2. Backs up original JSON files to an 'original-outputs' folder
 3. Applies edits to the workflow JSON (metadata/json/drawings_workflow.json)
 4. Handles cascade rejection logic (rejected subjects → reject derived headings)
@@ -17,13 +17,13 @@ This script:
    - Edit Statistics: Summary of archivist edits and acceptance rates
 
 Usage:
-    python integrate-archivist-edits.py                           # Use latest export
-    python integrate-archivist-edits.py --decisions path/to.json  # Use specific export
+    python step-6-integrate-archivist-edits.py                           # Use latest export
+    python step-6-integrate-archivist-edits.py --decisions path/to.json  # Use specific export
     python run.py 6
 
 Analysis-Only Mode (for comparing multiple evaluators):
-    python integrate-archivist-edits.py --evaluator "Alice" --decisions alice_edits.json
-    python integrate-archivist-edits.py --evaluator "Bob" --decisions bob_edits.json
+    python step-6-integrate-archivist-edits.py --evaluator "Alice" --decisions alice_edits.json
+    python step-6-integrate-archivist-edits.py --evaluator "Bob" --decisions bob_edits.json
 
     When --evaluator is specified:
     - No workflow files are modified (read-only analysis)
@@ -382,6 +382,11 @@ class ArchivistEditsIntegrator:
                 terms = analysis.get('final_selected_genre_terms', [])
                 if 0 <= idx < len(terms):
                     return terms[idx].get('label', term_id)
+            elif term_id.startswith('chrono-selected-'):
+                idx = int(term_id.split('chrono-selected-', 1)[1])
+                terms = analysis.get('chronological_vocabulary_terms', [])
+                if 0 <= idx < len(terms):
+                    return terms[idx].get('label', term_id)
             elif term_id.startswith('genre-other-'):
                 idx = int(term_id.split('genre-other-', 1)[1])
                 genre_results = analysis.get('genre_vocabulary_search_results', {})
@@ -586,9 +591,11 @@ class ArchivistEditsIntegrator:
             # Log to edit history.
             # Skip default-approved terms that ended up approved — those are no-ops
             # (archivist rejected then restored, net result = no change from default).
-            # Default-approved groups: topic-*, selected-*, medium-selected-*
+            # Default-approved groups: topic-*, selected-*, medium-selected-*,
+            # genre-selected-*, chrono-selected-*
             # Opt-in groups (other-*, medium-other-*) should always be logged when approved.
-            DEFAULT_APPROVED_PREFIXES = ('topic-', 'selected-', 'medium-selected-')
+            DEFAULT_APPROVED_PREFIXES = ('topic-', 'selected-', 'medium-selected-',
+                                         'genre-selected-', 'chrono-selected-')
             is_no_op_approval = (status == 'approved' and term_id.startswith(DEFAULT_APPROVED_PREFIXES))
 
             if not is_no_op_approval:
@@ -950,6 +957,7 @@ class ArchivistEditsIntegrator:
             # Headers for Final Metadata - matching step-4 structure
             metadata_headers = [
                 "Folder", "Filename", "Title", "Contributors", "Genre", "Genre Terms (Getty AAT)",
+                "Chronological Terms (FAST)",
                 "Description", "Format/Media Terms (Getty AAT)", "Date on Drawing", "Sheet Info",
                 "Topics (AI)", "Subject Headings (Controlled Vocab)",
                 "Named Entities", "Geographic Entities", "Content Warning",
@@ -1027,6 +1035,13 @@ class ArchivistEditsIntegrator:
                         for t in genre_terms_list if t.get('label')
                     )
 
+                    # Format chronological terms as semicolon-separated labels with URIs
+                    chrono_terms_list = metadata.get('chronological_terms', [])
+                    chrono_terms_str = '; '.join(
+                        f"{t.get('label', '')} ({t.get('uri', '')})" if t.get('uri') else t.get('label', '')
+                        for t in chrono_terms_list if t.get('label')
+                    )
+
                     row_data = [
                         record.get('folder', ''),
                         filename,
@@ -1034,6 +1049,7 @@ class ArchivistEditsIntegrator:
                         contributors_str,
                         metadata.get('genre', ''),
                         genre_terms_str,
+                        chrono_terms_str,
                         metadata.get('description', ''),
                         medium_terms_str,
                         metadata.get('date_on_drawing', ''),
@@ -1055,7 +1071,7 @@ class ArchivistEditsIntegrator:
                         cell.alignment = wrap_alignment
 
             # Adjust column widths for Final Metadata
-            col_widths = [20, 25, 30, 35, 25, 60, 40, 45, 15, 40, 40, 60, 40, 30, 15, 10, 20, 20, 30]
+            col_widths = [20, 25, 30, 35, 25, 60, 45, 40, 45, 15, 40, 40, 60, 40, 30, 15, 10, 20, 20, 30]
             for col_idx, width in enumerate(col_widths, 1):
                 ws1.column_dimensions[ws1.cell(row=1, column=col_idx).column_letter].width = width
 
@@ -1802,6 +1818,16 @@ class ArchivistEditsIntegrator:
                 filtered_genre.append(term)
             analysis['final_selected_genre_terms'] = filtered_genre
 
+            # Filter chronological_vocabulary_terms (remove rejected chronological terms)
+            chrono_terms = analysis.get('chronological_vocabulary_terms', [])
+            filtered_chrono = []
+            for i, term in enumerate(chrono_terms):
+                decision = term_decisions.get(f"chrono-selected-{i}")
+                if decision == 'rejected':
+                    continue
+                filtered_chrono.append(term)
+            analysis['chronological_vocabulary_terms'] = filtered_chrono
+
             # Prune archivist_term_decisions: keep opt-in approvals and curated selections
             # so generate_final_metadata() can re-apply them on future runs.
             pruned_decisions = {
@@ -1957,6 +1983,20 @@ class ArchivistEditsIntegrator:
                             'derived_from_topic': term.get('topic', '')
                         })
 
+            # Filter chronological terms (FAST): keep only approved ones
+            chrono_vocab_terms = analysis.get('chronological_vocabulary_terms', [])
+            approved_chrono_terms = []
+            for i, term in enumerate(chrono_vocab_terms):
+                term_id = f"chrono-selected-{i}"
+                if term_decisions.get(term_id) == 'rejected':
+                    continue  # Skip explicitly rejected
+                approved_chrono_terms.append({
+                    'label': term.get('label', ''),
+                    'uri': term.get('uri', ''),
+                    'source': term.get('source', 'FAST Chronological'),
+                    'derived_from_topic': ''
+                })
+
             # Build clean record
             clean_record = {
                 'folder': record.get('folder', ''),
@@ -1967,6 +2007,7 @@ class ArchivistEditsIntegrator:
                     'contributors': analysis.get('contributors', []),
                     'genre': analysis.get('genre', ''),
                     'genre_terms': approved_genre_terms,
+                    'chronological_terms': approved_chrono_terms,
                     'description': analysis.get('description', ''),
                     'format_media_terms': approved_medium_terms,
                     'date_on_drawing': analysis.get('date_on_drawing', ''),
@@ -2003,6 +2044,166 @@ class ArchivistEditsIntegrator:
         except Exception as e:
             print(f"   Error generating final_metadata.json: {e}")
             return False
+
+    def _get_collection_name(self):
+        """Extract collection name from the first workflow record's image_path."""
+        if not self.workflow_data:
+            return None
+        first = self.workflow_data[0]
+        img_path = first.get('image_path', '').replace('\\', '/')
+        marker = 'image_folders/'
+        idx = img_path.find(marker)
+        if idx == -1:
+            return None
+        rest = img_path[idx + len(marker):]
+        return rest.split('/')[0] or None
+
+    def _format_calibration_field(self, label, orig, final, is_first):
+        """Format one field for collection-examples.txt.
+
+        Example 1 always shows Original + Edited (even when identical).
+        Later examples show 'Field: value' for unchanged fields and
+        'Field (edited): / Original: / Edited:' only when the value changed.
+        """
+        orig = (str(orig) if orig else '').strip() or '[Not Visible]'
+        final = (str(final) if final else '').strip() or '[Not Visible]'
+        if is_first:
+            return [f"{label}:", f"  Original: {orig}", f"  Edited: {final}"]
+        if orig == final:
+            return [f"{label}: {final}"]
+        return [f"{label} (edited):", f"  Original: {orig}", f"  Edited: {final}"]
+
+    def export_calibration_examples(self, image_folders_base: str):
+        """Write collection-examples.txt to the image folder from reviewed calibration results.
+
+        Example 1 shows Original + Edited for every field so the AI can see the
+        full correction signal. Subsequent examples only highlight changed fields
+        (unchanged fields are shown as a single 'Field: value' line).
+
+        Args:
+            image_folders_base: Path to the image_folders directory (CODE/image_folders/).
+
+        Returns:
+            Path to the written file, or None on failure.
+        """
+        if not self.workflow_data or not self.decisions_data:
+            print("Error: workflow data or decisions not loaded.")
+            return None
+
+        collection_name = self._get_collection_name()
+        if not collection_name:
+            print("Error: Could not determine collection name from workflow data.")
+            return None
+
+        collection_folder = os.path.join(image_folders_base, collection_name)
+        if not os.path.exists(collection_folder):
+            print(f"Warning: Image folder not found at {collection_folder} — creating it.")
+            os.makedirs(collection_folder, exist_ok=True)
+
+        examples_path = os.path.join(collection_folder, "collection-examples.txt")
+        decisions = self.decisions_data.get('decisions', [])
+        archivist_name = self.stats.get('archivist_name', 'Archivist')
+
+        lines = [
+            f"# Calibration Examples for: {collection_name}",
+            f"# Archivist: {archivist_name}",
+            f"# Created: {datetime.now().strftime('%Y-%m-%d')}",
+            f"# Images reviewed: {len(decisions)}",
+            f"# Source: {self.folder_name}",
+            "",
+        ]
+
+        for i, decision in enumerate(decisions, start=1):
+            record_id = decision.get('record_id', i)
+            if record_id < 1 or record_id > len(self.workflow_data):
+                continue
+
+            record = self.workflow_data[record_id - 1]
+            analysis = record.get('analysis', {})
+            img_path = record.get('image_path', '')
+            img_filename = os.path.basename(img_path)
+            edits = decision.get('edits', {})
+            term_decisions = decision.get('term_decisions', {})
+            is_first = (i == 1)
+
+            def _get_final_text(field_key, default=""):
+                val = analysis.get(field_key, default)
+                edit = edits.get(field_key, {})
+                return edit.get('value', val) if edit.get('edited', False) else val
+
+            def _get_final_list(field_key):
+                val = analysis.get(field_key, [])
+                edit = edits.get(field_key, {})
+                return edit.get('value', val) if edit.get('edited', False) else val
+
+            def _fmt_contributors(raw):
+                if not raw:
+                    return ''
+                if isinstance(raw[0], dict):
+                    return "; ".join(
+                        f"{c.get('name', '')} ({c.get('role', '')})" if c.get('role') else c.get('name', '')
+                        for c in raw
+                    )
+                return "; ".join(str(c) for c in raw)
+
+            def _fmt_list(raw):
+                return "; ".join(raw) if raw else ''
+
+            # Original (AI output) values
+            orig_title = str(analysis.get('title', '') or '')
+            orig_contrib = _fmt_contributors(analysis.get('contributors', []))
+            orig_genre = str(analysis.get('genre', '') or '')
+            orig_desc = str(analysis.get('description', '') or '')
+            orig_topics_raw = analysis.get('topics', [])
+            orig_topics = _fmt_list(orig_topics_raw)
+            orig_date = str(analysis.get('date_on_drawing', '') or '')
+            orig_sheet = str(analysis.get('sheet_info', '') or '')
+            orig_named = _fmt_list(analysis.get('named_entities', []))
+            orig_geo = _fmt_list(analysis.get('geographic_entities', []))
+            orig_cw = str(analysis.get('content_warning', 'None') or 'None')
+
+            # Final (archivist-approved) values
+            final_title = str(_get_final_text('title') or '')
+            final_contrib = _fmt_contributors(_get_final_list('contributors'))
+            final_genre = str(_get_final_text('genre') or '')
+            final_desc = str(_get_final_text('description') or '')
+            final_topics_raw = _get_final_list('topics')
+            final_topics_list = [
+                t for j, t in enumerate(final_topics_raw)
+                if term_decisions.get(f"topic-{j}", 'approved') != 'rejected'
+            ]
+            final_topics = _fmt_list(final_topics_list)
+            final_date = str(_get_final_text('date_on_drawing') or '')
+            final_sheet = str(_get_final_text('sheet_info') or '')
+            final_named = _fmt_list(_get_final_list('named_entities'))
+            final_geo = _fmt_list(_get_final_list('geographic_entities'))
+            final_cw = str(_get_final_text('content_warning', 'None') or 'None')
+
+            field_specs = [
+                ("Title", orig_title, final_title),
+                ("Contributors", orig_contrib, final_contrib),
+                ("Genre", orig_genre, final_genre),
+                ("Description", orig_desc, final_desc),
+                ("Topics", orig_topics, final_topics),
+                ("Date On Drawing", orig_date, final_date),
+                ("Sheet Info", orig_sheet, final_sheet),
+                ("Named Entities", orig_named, final_named),
+                ("Geographic Entities", orig_geo, final_geo),
+                ("Content Warning", orig_cw, final_cw),
+            ]
+
+            lines += ["---", "", f"EXAMPLE {i}", f"Image: {img_filename}", ""]
+            for label, orig, final in field_specs:
+                lines += self._format_calibration_field(label, orig, final, is_first)
+            lines.append("")
+
+        try:
+            with open(examples_path, 'w', encoding='utf-8') as f:
+                f.write("\n".join(lines))
+            return examples_path
+        except Exception as e:
+            print(f"Error writing examples file: {e}")
+            return None
 
     def run(self, decisions_path=None):
         """Main execution method.
@@ -2167,7 +2368,7 @@ def prompt_for_folder(base_dir):
 
     if not folders:
         print(f"No output folders found in: {base_dir}")
-        print("Please run Steps 1-4 first, then html-review.py.")
+        print("Please run Steps 1-4 first, then step-5-html-review.py.")
         return None
 
     print("\nAvailable output folders:")
@@ -2293,10 +2494,15 @@ Analysis-only mode (for comparing multiple evaluators):
                              'Defaults to the pipeline folder\'s metadata/json/ directory.')
     parser.add_argument('--yes', '-y', action='store_true',
                         help='Skip confirmation prompt')
+    parser.add_argument('--export-calibration', '-g', action='store_true',
+                        help='Export archivist-reviewed metadata as collection-examples.txt '
+                             'in the image folder, enabling style-guided Step 1 runs. '
+                             'Read-only: does not modify any workflow files.')
 
     args = parser.parse_args()
 
-    print("Integrate Archivist Edits")
+    title = "Export Calibration Examples" if args.export_calibration else "Integrate Archivist Edits"
+    print(title)
     print("=" * 60)
 
     base_output_dir = os.path.join(script_dir, "output_folders")
@@ -2327,6 +2533,40 @@ Analysis-only mode (for comparing multiple evaluators):
             print("Operation cancelled.")
             return 0
         print(f"\nSelected decisions: {os.path.basename(decisions_path)}")
+
+    # --export-calibration: read-only mode — derive examples file from archivist decisions
+    if args.export_calibration:
+        print("\n" + "-" * 60)
+        print("Mode: Export Calibration Examples (read-only, no workflow files modified)")
+        print(f"  Calibration folder: {os.path.basename(folder_path)}")
+        print(f"  Decisions file  : {os.path.basename(decisions_path)}")
+        print("-" * 60)
+
+        integrator = ArchivistEditsIntegrator(folder_path)
+        if not integrator.load_workflow_json():
+            return 1
+        if not integrator.load_decisions(decisions_path):
+            return 1
+
+        image_folders_base = os.path.join(script_dir, "image_folders")
+        examples_path = integrator.export_calibration_examples(image_folders_base)
+
+        if examples_path:
+            collection_name = integrator._get_collection_name() or ""
+            print(f"\nCalibration examples written to:")
+            print(f"  {examples_path}")
+            print(f"\n{'='*60}")
+            print(f"NEXT STEPS")
+            print(f"{'='*60}")
+            print(f"  Run the full image analysis with your style guide:")
+            print(f"    python step-1-architectural-drawings.py")
+            print(f"  The AI will now use your personal style guide for every image")
+            print(f"  in image_folders/{collection_name}.")
+            print(f"{'='*60}")
+            return 0
+        else:
+            print("Error: Failed to write calibration examples.")
+            return 1
 
     # Confirm with user unless --yes flag or analysis-only mode
     if not args.yes and not args.evaluator:

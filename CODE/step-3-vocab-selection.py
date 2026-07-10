@@ -157,6 +157,25 @@ class VocabularySelector:
         if analysis.get('topics'):
             topics = analysis['topics']
             content_parts.append(f"TOPICS:\n{', '.join(topics) if isinstance(topics, list) else topics}")
+        if analysis.get('contributors'):
+            contribs = analysis['contributors']
+            if isinstance(contribs, list):
+                formatted = []
+                for c in contribs:
+                    if isinstance(c, dict):
+                        nm = c.get('name', '').strip()
+                        rl = c.get('role', '').strip()
+                        if nm:
+                            formatted.append(f"{nm} ({rl})" if rl else nm)
+                    elif c:
+                        formatted.append(str(c))
+                if formatted:
+                    content_parts.append(f"CONTRIBUTORS:\n{'; '.join(formatted)}")
+            else:
+                content_parts.append(f"CONTRIBUTORS:\n{contribs}")
+        if analysis.get('geographic_entities'):
+            geo = analysis['geographic_entities']
+            content_parts.append(f"GEOGRAPHIC ENTITIES:\n{', '.join(geo) if isinstance(geo, list) else geo}")
         if analysis.get('named_entities'):
             named_entities = analysis['named_entities']
             content_parts.append(f"NAMED ENTITIES:\n{', '.join(named_entities) if isinstance(named_entities, list) else named_entities}")
@@ -167,11 +186,12 @@ class VocabularySelector:
         topic_to_terms = analysis.get('vocabulary_search_results', {})
         genre_to_terms = analysis.get('genre_vocabulary_search_results', {})
 
-        if not topic_to_terms and not genre_to_terms:
-            return None
-
         topics_section = self._build_topic_organized_terms(topic_to_terms) if topic_to_terms else ""
         genre_section = self._build_topic_organized_terms(genre_to_terms) if genre_to_terms else ""
+        sanity_section = self._build_lookup_sanity_section(analysis)
+
+        if not topics_section and not genre_section and not sanity_section:
+            return None
 
         genre_prompt_section = ""
         if genre_section:
@@ -181,16 +201,55 @@ GENRE VOCABULARY TERMS (Getty AAT only):
 Select the most accurate Getty AAT terms for the drawing type/genre. Only select terms that precisely match the genre described. Use exact labels.
 """
 
+        topics_prompt_section = ""
+        if topics_section:
+            topics_prompt_section = f"""
+AVAILABLE VOCABULARY TERMS BY TOPIC:
+{topics_section}"""
+
+        sanity_prompt_section = ""
+        if sanity_section:
+            sanity_prompt_section = f"""
+AUTHORITY LOOKUP MATCHES TO SANITY-CHECK:
+{sanity_section}
+Review each match above for common sense. List any match that clearly refers to the wrong person, firm, place, time period, or drawing type in "rejected_lookups", using the exact key and label shown. Leave plausible matches alone.
+"""
+
         user_prompt = f"""Analyze this architectural drawing metadata and select appropriate vocabulary terms:
 
 {content_description}
-
-AVAILABLE VOCABULARY TERMS BY TOPIC:
-{topics_section}
-{genre_prompt_section}
+{topics_prompt_section}
+{genre_prompt_section}{sanity_prompt_section}
 Select the most relevant terms following your instructions. Use exact labels without [source] brackets. Skip topics with no genuinely relevant terms.
 """
         return user_prompt
+
+    def _build_lookup_sanity_section(self, analysis: Dict[str, Any]) -> str:
+        """List automatic authority lookup matches (contributor, geographic,
+        chronological, genre) for the model to sanity-check."""
+        lines = []
+
+        for name, terms in analysis.get('contributor_vocabulary_search_results', {}).items():
+            for term in terms:
+                if isinstance(term, dict) and term.get('label'):
+                    lines.append(f'  [contributor] key: "{name}" → match: "{term["label"]}" [{term.get("source", "FAST")}]')
+
+        for entity, terms in analysis.get('geographic_vocabulary_search_results', {}).items():
+            for term in terms:
+                if isinstance(term, dict) and term.get('label'):
+                    lines.append(f'  [geographic] key: "{entity}" → match: "{term["label"]}" [{term.get("source", "FAST Geographic")}]')
+
+        date_on_drawing = analysis.get('date_on_drawing', '') or 'unknown'
+        for term in analysis.get('chronological_vocabulary_terms', []):
+            if isinstance(term, dict) and term.get('label'):
+                lines.append(f'  [chronological] key: "{term["label"]}" → match: "{term["label"]}" (generated from date "{date_on_drawing}") [{term.get("source", "FAST")}]')
+
+        for genre_term, terms in analysis.get('genre_vocabulary_search_results', {}).items():
+            for term in terms:
+                if isinstance(term, dict) and term.get('label'):
+                    lines.append(f'  [genre] key: "{genre_term}" → match: "{term["label"]}" [{term.get("source", "Getty AAT")}]')
+
+        return "\n".join(lines)
 
     def _build_topic_organized_terms(self, topic_to_terms: Dict[str, List[Dict]]) -> str:
         sections = []
@@ -340,7 +399,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
             with open(json_path, 'r', encoding='utf-8') as f:
                 self.json_data = json.load(f)
 
-            data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+            data_items = [item for item in self.json_data if 'analysis' in item]
 
             has_vocab_terms = any(
                 item['analysis'].get('vocabulary_search_results', {}) or
@@ -362,7 +421,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
             return False
 
     def _load_collection_context(self) -> None:
-        data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+        data_items = [item for item in self.json_data if 'analysis' in item]
         if not data_items:
             return
 
@@ -382,13 +441,20 @@ class ArchitecturalDrawingsVocabularyProcessor:
 
     def find_entries_with_vocabulary(self) -> List[Tuple[int, Dict[str, Any]]]:
         entries_with_vocab = []
-        data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+        data_items = [item for item in self.json_data if 'analysis' in item]
 
         for i, item in enumerate(data_items):
             if 'analysis' in item:
-                vocab_terms = item['analysis'].get('vocabulary_search_results', {})
-                medium_vocab_terms = item['analysis'].get('medium_vocabulary_search_results', {})
-                if vocab_terms or medium_vocab_terms:
+                analysis = item['analysis']
+                has_reviewable_terms = (
+                    analysis.get('vocabulary_search_results', {}) or
+                    analysis.get('medium_vocabulary_search_results', {}) or
+                    analysis.get('genre_vocabulary_search_results', {}) or
+                    analysis.get('contributor_vocabulary_search_results', {}) or
+                    analysis.get('geographic_vocabulary_search_results', {}) or
+                    analysis.get('chronological_vocabulary_terms', [])
+                )
+                if has_reviewable_terms:
                     entries_with_vocab.append((i, item))
 
         return entries_with_vocab
@@ -632,12 +698,20 @@ class ArchitecturalDrawingsVocabularyProcessor:
 
     def update_json_data(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
         try:
-            data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
-            api_stats_data = self.json_data[-1] if self.json_data and 'api_stats' in self.json_data[-1] else None
+            data_items = [item for item in self.json_data if 'analysis' in item]
+            api_stats_data = next((item for item in self.json_data if 'api_stats' in item), None)
 
             updated_items = []
+            total_rejections = 0
             for i, item in enumerate(data_items):
                 if i in selection_results:
+                    # Apply authority lookup sanity-check rejections first, so a
+                    # rejected match can't survive into the search results or selections
+                    rejected_lookups = selection_results[i]['selection_result'].get('rejected_lookups', [])
+                    applied_rejections = self.apply_lookup_rejections(item['analysis'], rejected_lookups)
+                    item['analysis']['sanity_check_rejections'] = applied_rejections
+                    total_rejections += len(applied_rejections)
+
                     selected_term_responses = selection_results[i]['selection_result'].get('selected_terms', [])
                     selected_labels = [t.get('label', '').strip() for t in selected_term_responses if isinstance(t, dict)]
 
@@ -683,15 +757,78 @@ class ArchitecturalDrawingsVocabularyProcessor:
                 json.dump(updated_items, f, indent=2, ensure_ascii=False)
 
             print("Updated JSON file with selected vocabulary terms")
+            if total_rejections:
+                print(f"Sanity check removed {total_rejections} implausible authority lookup match(es) — details in each record's 'sanity_check_rejections'")
             return True
 
         except Exception as e:
             logging.error(f"Error updating JSON data: {e}")
             return False
 
+    def apply_lookup_rejections(self, analysis: Dict[str, Any], rejected_lookups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove sanity-check-rejected authority matches from the lookup result fields.
+
+        Returns the rejections that actually matched and were removed, so they can
+        be stored as an audit trail in 'sanity_check_rejections'.
+        """
+        category_to_field = {
+            'contributor': 'contributor_vocabulary_search_results',
+            'geographic': 'geographic_vocabulary_search_results',
+            'genre': 'genre_vocabulary_search_results',
+            'chronological': 'chronological_vocabulary_terms',
+        }
+
+        def norm(s):
+            return (s or '').strip().lower()
+
+        applied = []
+        for rejection in rejected_lookups or []:
+            if not isinstance(rejection, dict):
+                continue
+            label = norm(rejection.get('label'))
+            if not label:
+                continue
+
+            field = next((f for cat, f in category_to_field.items()
+                          if cat in norm(rejection.get('category'))), None)
+            if not field:
+                continue
+
+            removed = False
+            if field == 'chronological_vocabulary_terms':
+                terms = analysis.get(field, [])
+                kept = [t for t in terms if norm(t.get('label') if isinstance(t, dict) else '') != label]
+                if len(kept) != len(terms):
+                    analysis[field] = kept
+                    removed = True
+            else:
+                mapping = analysis.get(field, {})
+                key = (rejection.get('key') or '').strip()
+                # Fall back to scanning all keys if the reported key doesn't match
+                target_keys = [key] if key in mapping else list(mapping.keys())
+                for k in target_keys:
+                    terms = mapping.get(k, [])
+                    kept = [t for t in terms if norm(t.get('label') if isinstance(t, dict) else '') != label]
+                    if len(kept) != len(terms):
+                        removed = True
+                        if kept:
+                            mapping[k] = kept
+                        else:
+                            del mapping[k]
+
+            if removed:
+                applied.append({
+                    'category': rejection.get('category', ''),
+                    'key': rejection.get('key', ''),
+                    'label': rejection.get('label', ''),
+                    'reasoning': rejection.get('reasoning', ''),
+                })
+
+        return applied
+
     def create_vocabulary_mapping_json(self, selection_results: Dict[int, Dict[str, Any]]) -> bool:
         try:
-            data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+            data_items = [item for item in self.json_data if 'analysis' in item]
 
             vocabulary_mapping = {
                 "generated_timestamp": datetime.now().isoformat(),
@@ -739,7 +876,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
         try:
             metadata_dir = os.path.join(self.folder_path, "metadata")
             report_path = os.path.join(metadata_dir, "vocabulary_mapping_report.txt")
-            data_items = self.json_data[:-1] if self.json_data and 'api_stats' in self.json_data[-1] else self.json_data
+            data_items = [item for item in self.json_data if 'analysis' in item]
 
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write("ARCHITECTURAL DRAWINGS VOCABULARY MAPPING REPORT\n")
