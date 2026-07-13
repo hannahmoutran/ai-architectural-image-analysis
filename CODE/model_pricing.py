@@ -104,6 +104,13 @@ MODEL_PRICING = {
     # OPENAI MODELS
     # ===================
 
+    # GPT-5.6 Luna
+    "gpt-5.6-luna": {
+        "input_per_1k": 0.001,    # $1.00 per 1M (cached input: $0.10 per 1M)
+        "output_per_1k": 0.006,   # $6.00 per 1M
+        "batch_discount": 0.5
+    },
+
     # GPT-5.2 models
     "gpt-5.2": {
         "input_per_1k": 0.00175,  # $1.75 per 1M

@@ -17,6 +17,23 @@ class APIStats:
         self.total_output_tokens = 0
         self.processing_times = []
 
+def openai_model_kwargs(model_name: str, max_tokens: int, temperature: float,
+                        responses_api: bool = False) -> Dict[str, Any]:
+    """Build token-limit and temperature kwargs for an OpenAI request.
+
+    GPT-5-series and o-series reasoning models require max_completion_tokens
+    on Chat Completions and only support the default temperature (1), so
+    temperature is omitted for them.
+    """
+    reasoning_model = any(model_name.startswith(p) for p in ("gpt-5", "o1", "o3", "o4"))
+    if responses_api:
+        kwargs = {"max_output_tokens": max_tokens}
+    else:
+        kwargs = {("max_completion_tokens" if reasoning_model else "max_tokens"): max_tokens}
+    if not reasoning_model:
+        kwargs["temperature"] = temperature
+    return kwargs
+
 def find_newest_folder(base_directory: str) -> Optional[str]:
     """Find the newest folder containing the expected metadata structure.
 

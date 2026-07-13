@@ -25,7 +25,7 @@ from PIL import Image as PILImage
 from io import BytesIO
 from openpyxl.drawing.image import Image as XLImage
 import base64
-from shared_utilities import APIStats, postprocess_api_response, parse_json_response_enhanced, find_newest_folder
+from shared_utilities import APIStats, postprocess_api_response, parse_json_response_enhanced, find_newest_folder, openai_model_kwargs
 
 
 # Import our custom modules
@@ -312,14 +312,13 @@ class BatchCleanupProcessor:
         response = client.chat.completions.create(
             model=model_name,
             messages=[{
-                "role": "system", 
+                "role": "system",
                 "content": "You are an AI archival expert tasked with cleaning OCR text and extracting metadata from it."
             }, {
                 "role": "user",
                 "content": f"{prompt}\n\nHere's the content to analyze:\n\n{content.strip()}\n\nNote: This is a Step 1.5 cleanup - reprocessing to fix batch processing issues."
             }],
-            max_tokens=4000,
-            temperature=0.1  # Low temperature for more consistent results
+            **openai_model_kwargs(model_name, 4000, 0.1)
         )
         
         processing_time = time.time() - start_time
@@ -379,8 +378,7 @@ class BatchCleanupProcessor:
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]
             }],
-            max_tokens=3000,
-            temperature=0.1  # Low temperature for consistency
+            **openai_model_kwargs(model_name, 3000, 0.1)
         )
         
         processing_time = time.time() - start_time

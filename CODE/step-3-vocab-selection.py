@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 import tenacity
 from prompts import ArchitecturalDrawingPrompts
-from shared_utilities import APIStats, find_newest_folder
+from shared_utilities import APIStats, find_newest_folder, openai_model_kwargs
 from model_pricing import calculate_cost, get_model_info
 from token_logging import create_token_usage_log, log_individual_response
 from batch_processor import BatchProcessor
@@ -95,13 +95,6 @@ def load_collection_context(image_folder_path: str) -> str:
     )
 
 
-def get_max_tokens_param(model_name: str, max_tokens: int) -> dict:
-    """Return the correct max tokens parameter for OpenAI model variants."""
-    if model_name.startswith('gpt-5') or model_name.startswith('o1') or model_name.startswith('o3'):
-        return {"max_completion_tokens": max_tokens}
-    return {"max_tokens": max_tokens}
-
-
 def prepare_batch_requests(entries_with_vocab, vocabulary_selector, model_name):
     """Prepare batch requests for OpenAI batch processing."""
     batch_requests = []
@@ -118,8 +111,7 @@ def prepare_batch_requests(entries_with_vocab, vocabulary_selector, model_name):
                 {"role": "system", "content": vocabulary_selector.system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.1,
-            **get_max_tokens_param(model_name, 4000)
+            **openai_model_kwargs(model_name, 4000, 0.1)
         }
 
         batch_requests.append(request_data)
@@ -317,8 +309,7 @@ Select the most relevant terms following your instructions. Use exact labels wit
                         {"role": "system", "content": self.system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=4000,
-                    temperature=0.1
+                    **openai_model_kwargs(self.model_name, 4000, 0.1)
                 )
                 return response.choices[0].message.content.strip(), NormalizedUsage(
                     response.usage.prompt_tokens, response.usage.completion_tokens
@@ -328,8 +319,7 @@ Select the most relevant terms following your instructions. Use exact labels wit
                 response = _client.responses.create(
                     model=self.model_name,
                     input=[{"role": "user", "content": [{"type": "input_text", "text": full_prompt}]}],
-                    max_output_tokens=4000,
-                    temperature=0.1
+                    **openai_model_kwargs(self.model_name, 4000, 0.1, responses_api=True)
                 )
                 return response.output_text.strip(), NormalizedUsage(
                     response.usage.input_tokens, response.usage.output_tokens

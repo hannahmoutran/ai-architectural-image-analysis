@@ -10,7 +10,7 @@ from PIL import Image as PILImage
 from io import BytesIO
 import time
 from prompts import ArchitecturalDrawingPrompts
-from shared_utilities import APIStats, postprocess_api_response, parse_json_response_enhanced
+from shared_utilities import APIStats, postprocess_api_response, parse_json_response_enhanced, openai_model_kwargs
 from model_pricing import calculate_cost
 from token_logging import create_token_usage_log, log_individual_response
 from batch_processor import BatchProcessor
@@ -175,15 +175,13 @@ def _call_api(image_path, model_name, prompt):
 
     elif _provider == "openai":
         if OPENAI_USE_PORTKEY:
-            max_tokens_key = "max_completion_tokens" if any(model_name.startswith(p) for p in ("gpt-5", "o1", "o3")) else "max_tokens"
             response = _client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}", "detail": "high"}}
                 ]}],
-                **{max_tokens_key: 3000},
-                temperature=0.3
+                **openai_model_kwargs(model_name, 3000, 0.3)
             )
             return response.choices[0].message.content.strip(), SimpleUsage(response.usage.prompt_tokens, response.usage.completion_tokens)
         else:
@@ -193,8 +191,7 @@ def _call_api(image_path, model_name, prompt):
                     {"type": "input_text", "text": prompt},
                     {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_data}", "detail": "high"}
                 ]}],
-                max_output_tokens=3000,
-                temperature=0.3
+                **openai_model_kwargs(model_name, 3000, 0.3, responses_api=True)
             )
             return response.output_text.strip(), SimpleUsage(response.usage.input_tokens, response.usage.output_tokens)
 
@@ -231,16 +228,14 @@ def _call_text_api(prompt: str, model_name: str):
             response = _client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=4000,
-                temperature=0.3
+                **openai_model_kwargs(model_name, 4000, 0.3)
             )
             return response.choices[0].message.content.strip(), SimpleUsage(response.usage.prompt_tokens, response.usage.completion_tokens)
         else:
             response = _client.responses.create(
                 model=model_name,
                 input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
-                max_output_tokens=4000,
-                temperature=0.3
+                **openai_model_kwargs(model_name, 4000, 0.3, responses_api=True)
             )
             return response.output_text.strip(), SimpleUsage(response.usage.input_tokens, response.usage.output_tokens)
 

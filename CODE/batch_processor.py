@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional
 from openai import OpenAI
 import tempfile
 from model_pricing import estimate_cost
+from shared_utilities import openai_model_kwargs
 
 
 class BatchProcessor:
@@ -75,15 +76,21 @@ class BatchProcessor:
         batch_requests = []
 
         for i, req_data in enumerate(requests_data):
+            model = req_data.get("model", "gpt-4o-mini-2024-07-18")
+            max_output_tokens = (req_data.get("max_output_tokens")
+                                 or req_data.get("max_completion_tokens")
+                                 or req_data.get("max_tokens", 2000))
             batch_request = {
                 "custom_id": f"{custom_id_prefix}_{i}_{uuid.uuid4().hex[:8]}",
                 "method": "POST",
                 "url": "/v1/responses",
                 "body": {
-                    "model": req_data.get("model", "gpt-4o-mini-2024-07-18"),
-                    "input": req_data["input"],
-                    "max_output_tokens": req_data.get("max_output_tokens", 2000),
-                    "temperature": req_data.get("temperature", 0)
+                    "model": model,
+                    # Chat-style "messages" (Step 3) are accepted as Responses API input
+                    "input": req_data.get("input") or req_data["messages"],
+                    **openai_model_kwargs(model, max_output_tokens,
+                                          req_data.get("temperature", 0),
+                                          responses_api=True)
                 }
             }
 

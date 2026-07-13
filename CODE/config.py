@@ -40,11 +40,11 @@ CREATE_HTML_REVIEW = True
 
 # --- Step 1: Image Analysis ---
 # Extracts metadata from architectural drawings
-STEP1_PROVIDER = "gemini"
+STEP1_PROVIDER = "openai"
 
 # --- Step 3: Vocabulary Selection ---
 # Selects best vocabulary terms for each drawing
-STEP3_PROVIDER = "gemini"
+STEP3_PROVIDER = "openai"
 
 # =============================================================================
 # AVAILABLE MODELS BY PROVIDER
@@ -78,9 +78,10 @@ AVAILABLE_MODELS = {
     # OPENAI MODELS
     # -------------------------------------------------------------------------
     "openai": {
-        "default": "gpt-5.1",
+        "default": "gpt-5.6-luna",
         "models": [
             # GPT-5 Series
+            "gpt-5.6-luna",
             "gpt-5.2",
             "gpt-5.1",
             "gpt-5",
@@ -134,7 +135,7 @@ STEP3_MODEL = None  # e.g., "gpt-4.1-mini" or None for default
 # Set to True to route OpenAI calls through the Portkey gateway (requires
 # PORTKEY_API_KEY and PORTKEY_VIRTUAL_KEY environment variables).
 # Set to False (default) to call the OpenAI API directly.
-OPENAI_USE_PORTKEY = False
+OPENAI_USE_PORTKEY = True
 
 
 # =============================================================================
