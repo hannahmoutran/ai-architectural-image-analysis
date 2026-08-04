@@ -1,9 +1,9 @@
 # model_pricing.py
 """
 Centralized model pricing configuration for OpenAI and Anthropic models.
-Updated as of January 2026 - verify current pricing at:
+Updated as of July 2026 - verify current pricing at:
   - https://openai.com/pricing
-  - https://docs.anthropic.com/en/docs/about-claude/pricing
+  - https://platform.claude.com/docs/en/about-claude/pricing
 
 Prices are per 1M tokens, converted to per 1K for calculation.
 Standard tier pricing is used as default.
@@ -13,6 +13,20 @@ MODEL_PRICING = {
     # ===================
     # GOOGLE GEMINI MODELS
     # ===================
+
+    # Gemini 3.5 Flash
+    "gemini-3.5-flash": {
+        "input_per_1k": 0.0015,   # $1.50 per 1M
+        "output_per_1k": 0.009,   # $9 per 1M (including thinking tokens)
+        "batch_discount": 0.5
+    },
+
+    # Gemini 3.1 Flash-Lite
+    "gemini-3.1-flash-lite": {
+        "input_per_1k": 0.00025,  # $0.25 per 1M (text/image/video; audio is $0.50)
+        "output_per_1k": 0.0015,  # $1.50 per 1M (including thinking tokens)
+        "batch_discount": 0.5
+    },
 
     # Gemini 3 Pro Preview
     "gemini-3-pro-preview": {
@@ -39,70 +53,45 @@ MODEL_PRICING = {
     # ANTHROPIC MODELS
     # ===================
 
-    # Claude Opus 4.5
-    "claude-opus-4-5-20250514": {
-        "input_per_1k": 0.005,    # $5 per 1M
-        "output_per_1k": 0.025,   # $25 per 1M
+    # Claude Sonnet 5 - Introductory pricing through Aug 31, 2026;
+    # becomes $3/$15 per 1M starting Sept 1, 2026
+    "claude-sonnet-5": {
+        "input_per_1k": 0.002,    # $2 per 1M
+        "output_per_1k": 0.01,    # $10 per 1M
         "batch_discount": 0.5
     },
 
-    # Claude Opus 4.1
-    "claude-opus-4-1-20250414": {
-        "input_per_1k": 0.015,    # $15 per 1M
-        "output_per_1k": 0.075,   # $75 per 1M
-        "batch_discount": 0.5
-    },
-
-    # Claude Opus 4
-    "claude-opus-4-20250514": {
-        "input_per_1k": 0.015,    # $15 per 1M
-        "output_per_1k": 0.075,   # $75 per 1M
-        "batch_discount": 0.5
-    },
-
-    # Claude Sonnet 4.5
-    "claude-sonnet-4-5-20250514": {
+    # Claude Sonnet 4.6
+    "claude-sonnet-4-6": {
         "input_per_1k": 0.003,    # $3 per 1M
         "output_per_1k": 0.015,   # $15 per 1M
         "batch_discount": 0.5
     },
+
+    # Claude Sonnet 4.5
     "claude-sonnet-4-5-20250929": {
         "input_per_1k": 0.003,    # $3 per 1M
         "output_per_1k": 0.015,   # $15 per 1M
         "batch_discount": 0.5
     },
 
-    # Claude Sonnet 4
-    "claude-sonnet-4-20250514": {
-        "input_per_1k": 0.003,    # $3 per 1M
-        "output_per_1k": 0.015,   # $15 per 1M
-        "batch_discount": 0.5
-    },
-
     # Claude Haiku 4.5
-    "claude-haiku-4-5-20250514": {
+    "claude-haiku-4-5-20251001": {
         "input_per_1k": 0.001,    # $1 per 1M
         "output_per_1k": 0.005,   # $5 per 1M
-        "batch_discount": 0.5
-    },
-
-    # Claude Haiku 3.5
-    "claude-3-5-haiku-20241022": {
-        "input_per_1k": 0.0008,   # $0.80 per 1M
-        "output_per_1k": 0.004,   # $4 per 1M
-        "batch_discount": 0.5
-    },
-
-    # Claude Haiku 3
-    "claude-3-haiku-20240307": {
-        "input_per_1k": 0.00025,  # $0.25 per 1M
-        "output_per_1k": 0.00125, # $1.25 per 1M
         "batch_discount": 0.5
     },
 
     # ===================
     # OPENAI MODELS
     # ===================
+
+    # GPT-5.6 Terra
+    "gpt-5.6-terra": {
+        "input_per_1k": 0.0025,   # $2.50 per 1M
+        "output_per_1k": 0.015,   # $15.00 per 1M
+        "batch_discount": 0.5
+    },
 
     # GPT-5.6 Luna
     "gpt-5.6-luna": {
@@ -143,18 +132,6 @@ MODEL_PRICING = {
     "gpt-5-nano": {
         "input_per_1k": 0.00005,  # $0.05 per 1M
         "output_per_1k": 0.0004,  # $0.40 per 1M
-        "batch_discount": 0.5
-    },
-
-    # GPT-5-pro models (no batch discount listed)
-    "gpt-5.2-pro": {
-        "input_per_1k": 0.021,    # $21.00 per 1M
-        "output_per_1k": 0.168,   # $168.00 per 1M
-        "batch_discount": 0.5
-    },
-    "gpt-5-pro": {
-        "input_per_1k": 0.015,    # $15.00 per 1M
-        "output_per_1k": 0.12,    # $120.00 per 1M
         "batch_discount": 0.5
     },
 
@@ -224,29 +201,9 @@ MODEL_PRICING = {
     },
 
     # O-series reasoning models
-    "o1": {
-        "input_per_1k": 0.015,    # $15.00 per 1M
-        "output_per_1k": 0.06,    # $60.00 per 1M
-        "batch_discount": 0.5
-    },
-    "o1-pro": {
-        "input_per_1k": 0.15,     # $150.00 per 1M
-        "output_per_1k": 0.6,     # $600.00 per 1M
-        "batch_discount": 0.5
-    },
-    "o1-mini": {
-        "input_per_1k": 0.0011,   # $1.10 per 1M
-        "output_per_1k": 0.0044,  # $4.40 per 1M
-        "batch_discount": 0.5
-    },
     "o3": {
         "input_per_1k": 0.002,    # $2.00 per 1M
         "output_per_1k": 0.008,   # $8.00 per 1M
-        "batch_discount": 0.5
-    },
-    "o3-pro": {
-        "input_per_1k": 0.02,     # $20.00 per 1M
-        "output_per_1k": 0.08,    # $80.00 per 1M
         "batch_discount": 0.5
     },
     "o3-mini": {

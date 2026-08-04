@@ -80,12 +80,33 @@ class EntityAuthority:
         normalized = re.sub(r'\bInc\.\b', 'Incorporated', normalized, flags=re.IGNORECASE)
         
         return normalized
-    
+
+    HONORIFIC_PATTERN = re.compile(r'^(mrs|mister|missus|miss|mr|ms|dr|doctor)\.?\s+', re.IGNORECASE)
+    HONORIFIC_ALIASES = {'mister': 'mr', 'missus': 'mrs', 'doctor': 'dr'}
+
+    def get_honorific(self, name: str) -> Optional[str]:
+        """Extract a leading honorific (mr, mrs, ms, miss, dr) if present."""
+        match = self.HONORIFIC_PATTERN.match(name.strip())
+        if not match:
+            return None
+        honorific = match.group(1).lower()
+        return self.HONORIFIC_ALIASES.get(honorific, honorific)
+
+    def honorifics_conflict(self, name_a: str, name_b: str) -> bool:
+        """True when both names carry different honorifics (Mr. vs Mrs. = different people, e.g. spouses)."""
+        a, b = self.get_honorific(name_a), self.get_honorific(name_b)
+        return a is not None and b is not None and a != b
+
     def find_similar_entity(self, entity_name: str, existing_entities: List[str]) -> Optional[str]:
         """Find if entity is similar to existing ones using fuzzy matching."""
         if not FUZZY_LIB or not existing_entities:
             return None
-        
+
+        # Never match names whose honorifics differ (Mr. vs Mrs.)
+        existing_entities = [e for e in existing_entities if not self.honorifics_conflict(entity_name, e)]
+        if not existing_entities:
+            return None
+
         normalized_name = self.normalize_entity_name(entity_name)
         normalized_existing = [self.normalize_entity_name(e) for e in existing_entities]
         
@@ -175,7 +196,11 @@ class EntityAuthority:
             for other_entity in raw_entities:
                 if other_entity in processed:
                     continue
-                    
+
+                # Never merge names whose honorifics differ (Mr. vs Mrs. = spouses, not variants)
+                if self.honorifics_conflict(entity, other_entity):
+                    continue
+
                 # Check similarity
                 similarity = fuzz.ratio(
                     self.normalize_entity_name(entity),

@@ -40,11 +40,11 @@ CREATE_HTML_REVIEW = True
 
 # --- Step 1: Image Analysis ---
 # Extracts metadata from architectural drawings
-STEP1_PROVIDER = "openai"
+STEP1_PROVIDER = "gemini"
 
 # --- Step 3: Vocabulary Selection ---
 # Selects best vocabulary terms for each drawing
-STEP3_PROVIDER = "openai"
+STEP3_PROVIDER = "gemini"
 
 # =============================================================================
 # AVAILABLE MODELS BY PROVIDER
@@ -59,18 +59,12 @@ AVAILABLE_MODELS = {
     "claude": {
         "default": "claude-sonnet-4-5-20250929",
         "models": [
-            # Opus - Most capable
-            "claude-opus-4-5-20250514",
-            "claude-opus-4-1-20250414",
-            "claude-opus-4-20250514",
             # Sonnet - Balanced performance/cost
+            "claude-sonnet-5",
+            "claude-sonnet-4-6",
             "claude-sonnet-4-5-20250929",
-            "claude-sonnet-4-5-20250514",
-            "claude-sonnet-4-20250514",
             # Haiku - Fast and affordable
-            "claude-haiku-4-5-20250514",
-            "claude-3-5-haiku-20241022",
-            "claude-3-haiku-20240307",
+            "claude-haiku-4-5-20251001",
         ]
     },
 
@@ -81,15 +75,13 @@ AVAILABLE_MODELS = {
         "default": "gpt-5.6-luna",
         "models": [
             # GPT-5 Series
+            "gpt-5.6-terra",
             "gpt-5.6-luna",
             "gpt-5.2",
             "gpt-5.1",
             "gpt-5",
             "gpt-5-mini",
             "gpt-5-nano",
-            # GPT-5 Pro (reasoning)
-            "gpt-5.2-pro",
-            "gpt-5-pro",
             # GPT-4.1 Series
             "gpt-4.1",
             "gpt-4.1-mini",
@@ -98,8 +90,6 @@ AVAILABLE_MODELS = {
             "gpt-4o",
             "gpt-4o-mini",
             # O-Series (reasoning)
-            "o1",
-            "o1-mini",
             "o3",
             "o3-mini",
             "o4-mini",
@@ -112,6 +102,8 @@ AVAILABLE_MODELS = {
     "gemini": {
         "default": "gemini-3-flash-preview",
         "models": [
+            "gemini-3.5-flash",
+            "gemini-3.1-flash-lite",
             "gemini-3-pro-preview",
             "gemini-3-flash-preview",
             "gemini-3-pro-image-preview",
@@ -125,7 +117,7 @@ AVAILABLE_MODELS = {
 # If you want to use a specific model instead of the provider default,
 # set it here. Leave as None to use the provider's default model.
 
-STEP1_MODEL = None  # e.g., "claude-opus-4-5-20250514" or None for default
+STEP1_MODEL = None  # e.g., "claude-sonnet-4-6" or None for default
 STEP3_MODEL = None  # e.g., "gpt-4.1-mini" or None for default
 
 
