@@ -19,9 +19,10 @@ This system uses LLMs (Claude, OpenAI, Gemini) to:
 
 ## Features
 
+- **Calibration step**: Run a small sample first so the archivist can correct it, creating style-guide examples that guide the full run
 - **Multi-provider support**: Choose between OpenAI, Anthropic Claude, or Google Gemini for AI processing
 - **Controlled vocabulary integration**: Automatically searches and selects terms from LCSH, FAST, and Getty AAT
-- **Format/media vocabulary**: Extracts medium and support separately and maps them to Getty AAT terms
+- **Format/media vocabulary**: Curated Getty AAT medium and support checklists presented in the HTML review for archivist selection (not AI-extracted)
 - **OpenAI Batch API support**: 50% cost savings with OpenAI's Batch API for large collections
 - **Multi-collection processing**: Process multiple collections sequentially in a single run
 - **HTML review interface**: Web-based archivist review of AI-generated metadata
@@ -30,30 +31,31 @@ This system uses LLMs (Claude, OpenAI, Gemini) to:
 ## Workflow
 
 ```
-Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3: VOCAB SELECTION → Step 4: ENTITY REPORT → HTML REVIEW → INTEGRATE EDITS
+Step 0: CALIBRATION (optional) → Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP → Step 2: VOCAB LOOKUP → Step 3: VOCAB SELECTION → Step 4: ENTITY REPORT → Step 5: HTML REVIEW → Step 6: INTEGRATE EDITS
 ```
 
-| Step | Scripts | Purpose |
-|------|---------|---------|
-| **1** | `step-1-architectural-drawings-{claude,openai,gemini}.py`, `step-1-architectural-drawings-openai-portkey.py` | Extract metadata from images (title, contributors, genre, description, topics, dates, entities, medium, support) |
+| Step | Script | Purpose |
+|------|--------|---------|
+| **0** | `step-0-calibration.py` | Process a small sample, generate HTML review; archivist corrects it to create few-shot style examples for the full run |
+| **1** | `step-1-architectural-drawings.py` | Extract metadata from images (title, contributors, genre, description, topics, dates, entities) |
 | **1.5** | `step-1.5-batch-cleanup.py` | Reprocess failed items from Step 1 |
 | **2** | `step-2-terms.py` | Query controlled vocabulary APIs (LCSH, FAST, Getty AAT) |
-| **3** | `step-3-vocab-selection-{claude,openai,gemini}.py`, `step-3-vocab-selection-openai-portkey.py` | AI selects best vocabulary terms from search results |
+| **3** | `step-3-vocab-selection.py` | AI selects best vocabulary terms from search results |
 | **4** | `step-4-entity-report-creation.py` | Compile named entity authority file with fuzzy matching |
-| — | `html-review.py` | Generate interactive HTML review interface for archivist curation |
-| — | `integrate-archivist-edits.py` | Apply archivist edits back to metadata files; generates `edit_report.json` (stats + edit history) and `final_deliverable.xlsx`. Supports **analysis-only mode** (`--evaluator` flag) to generate named reports without modifying any workflow files — useful for comparing multiple evaluators on the same output. |
-| — | `batch-evaluator-reports.py` | Batch-process all decisions JSONs for one evaluator across multiple collections/models, automatically locating each pipeline output folder and running `integrate-archivist-edits.py` in analysis-only mode. Reports are written to `{EvaluatorName}_changes/` inside the evaluator's folder. |
+| **5** | `step-5-html-review.py` | Generate interactive HTML review interface for archivist curation |
+| **6** | `step-6-integrate-archivist-edits.py` | Apply archivist edits back to metadata files; generates `edit_report.json` (stats + edit history) and `final_deliverable.xlsx`. Supports **analysis-only mode** (`--evaluator` flag) to generate named reports without modifying any workflow files — useful for comparing multiple evaluators on the same output. |
+| — | `batch-evaluator-reports.py` | Batch-process all decisions JSONs for one evaluator across multiple collections/models, automatically locating each pipeline output folder and running `step-6-integrate-archivist-edits.py` in analysis-only mode. Reports are written to `{EvaluatorName}_changes/` inside the evaluator's folder. |
 
 ## LLM Providers
 
 **Anthropic** (default: `claude-sonnet-4-5-20250929`)
-- claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5
+- claude-sonnet-5, claude-sonnet-4-6, claude-sonnet-4-5-20250929, claude-haiku-4-5-20251001
 
-**OpenAI** (default: `gpt-5.1`)
-- GPT-5 series, GPT-4.1, GPT-4o, o1/o3 reasoning models
+**OpenAI** (default: `gpt-5.6-luna`)
+- GPT-5 series (gpt-5.6-terra, gpt-5.6-luna, gpt-5.2, gpt-5.1, gpt-5, gpt-5-mini, gpt-5-nano), GPT-4.1, GPT-4o, o3/o4 reasoning models
 
 **Google** (default: `gemini-3-flash-preview`)
-- gemini-3-pro-preview, gemini-3-flash-preview
+- gemini-3.5-flash, gemini-3.1-flash-lite, gemini-3-pro-preview, gemini-3-flash-preview, gemini-3-pro-image-preview
 
 ## Installation
 
@@ -93,9 +95,38 @@ python run.py --config # Show current configuration
 ```
 
 The interactive runner will prompt you to:
-1. Confirm running Steps 1-4
+1. Confirm running Steps 1-4 (and Step 5 HTML review if `CREATE_HTML_REVIEW = True` in `config.py`)
 2. Enable OpenAI Batch API processing (if using OpenAI) for 50% cost savings
-3. Generate the HTML review interface
+
+### Step 0: Calibration (Optional but Recommended)
+
+Before running the full pipeline on a new collection, run Step 0 to process a small sample and create archivist-corrected style examples. These examples are fed to the AI during Step 1 so it adopts the archivist's preferred style for the collection.
+
+```bash
+# 1. Run a small sample (CALIBRATION_COUNT images set in config.py, default: 1)
+python step-0-calibration.py
+# Or specify count/folder on the command line:
+python step-0-calibration.py --count 5
+python step-0-calibration.py --folder my-collection --count 5
+
+# An HTML review interface is generated automatically.
+# Open it in a browser, edit the metadata to match your preferred style,
+# then click Export Decisions and save the file in the exports/ subfolder.
+
+# 2. Regenerate the review interface if needed
+python step-0-calibration.py --review
+python step-0-calibration.py --review --folder output_folders/my-calibration-run
+
+# 3. Export corrected examples as few-shot style guide
+python step-0-calibration.py --export
+python step-0-calibration.py --export --folder output_folders/my-calibration-run
+# This writes collection-examples.txt to the image folder.
+# You can optionally edit the style guide section at the bottom of that file.
+```
+
+When you run the full pipeline (Steps 1–4), Step 1 automatically picks up `collection-examples.txt` from the image folder if it exists, using your corrections as few-shot examples alongside the prompt.
+
+> **Note:** Step 0 calibration output folders are named with `_calibration_` in the folder name. Use `--folder` to point to them explicitly if needed.
 
 ### Configuration
 
@@ -123,7 +154,7 @@ Each folder runs through the complete pipeline (Steps 1-4) before moving to the 
 ```python
 STEP1_PROVIDER = "claude"  # or "openai", "gemini"
 STEP3_PROVIDER = "claude"  # can use different provider for vocab selection
-STEP1_MODEL = "claude-opus-4-5-20250514"  # or None for provider default
+STEP1_MODEL = "claude-sonnet-4-6"  # or None for provider default
 ```
 
 #### OpenAI via Portkey Gateway (Optional)
@@ -142,7 +173,7 @@ export PORTKEY_VIRTUAL_KEY="your-portkey-virtual-key"
 
 Both values can be found in the Portkey dashboard under Getting Started. The **virtual key** is the slug for your OpenAI provider connection (e.g. `your-org-name-openai`).
 
-When enabled, `run.py` will automatically use the Portkey-based scripts for Steps 1 and 3. If you are calling OpenAI directly, leave `OPENAI_USE_PORTKEY = False` and set `OPENAI_API_KEY` as usual.
+When enabled, `run.py` will route OpenAI calls through the Portkey gateway for Steps 1 and 3. If you are calling OpenAI directly, leave `OPENAI_USE_PORTKEY = False` and set `OPENAI_API_KEY` as usual.
 
 ### OpenAI Batch Processing
 
@@ -185,8 +216,8 @@ USE_BATCH_PROCESSING=false python run.py
 After archivist review, run Step 6 to apply decisions back to the metadata:
 
 ```bash
-python integrate-archivist-edits.py                          # Use latest export
-python integrate-archivist-edits.py --decisions path/to.json # Use specific export
+python step-6-integrate-archivist-edits.py                          # Use latest export
+python step-6-integrate-archivist-edits.py --decisions path/to.json # Use specific export
 ```
 
 This updates `drawings_workflow.json`, generates `final_metadata.json`, produces `edit_report.json`, and creates `final_deliverable.xlsx` (two sheets: Final Metadata and Edit Statistics).
@@ -196,8 +227,8 @@ This updates `drawings_workflow.json`, generates `final_metadata.json`, produces
 Pass `--evaluator` to generate a named report **without modifying any workflow files**:
 
 ```bash
-python integrate-archivist-edits.py --evaluator "Alice" --decisions alice_edits.json --folder /path/to/pipeline/output --output /path/to/reports
-python integrate-archivist-edits.py --evaluator "Bob"   --decisions bob_edits.json   --folder /path/to/pipeline/output --output /path/to/reports
+python step-6-integrate-archivist-edits.py --evaluator "Alice" --decisions alice_edits.json --folder /path/to/pipeline/output --output /path/to/reports
+python step-6-integrate-archivist-edits.py --evaluator "Bob"   --decisions bob_edits.json   --folder /path/to/pipeline/output --output /path/to/reports
 ```
 
 This generates `edit_report_Alice_<folder>_<date>.json` and `edit_report_Bob_<folder>_<date>.json` for side-by-side comparison.
