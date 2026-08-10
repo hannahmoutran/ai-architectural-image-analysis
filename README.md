@@ -114,8 +114,7 @@ python step-0-calibration.py --folder my-collection --count 5
 # then click Export Decisions and save the file in the exports/ subfolder.
 
 # 2. Regenerate the review interface if needed
-python step-0-calibration.py --review
-python step-0-calibration.py --review --folder output_folders/my-calibration-run
+python step-5-html-review.py --folder output_folders/my-calibration-run
 
 # 3. Export corrected examples as few-shot style guide
 python step-0-calibration.py --export

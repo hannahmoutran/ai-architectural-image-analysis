@@ -2,30 +2,17 @@
 """
 Step 0: Calibration — Create Archivist Style Examples
 
-Processes a small sample of images WITHOUT prior examples, creating a baseline
-the archivist can review and correct.  Those corrected examples then guide the
-full Step 1 run, so the AI adopts the archivist's personal style for the collection.
+Analyzes a small sample of images so the archivist can correct the results;
+the corrected examples then guide the full Step 1 run.
 
-Workflow for creating a calibrated dataset:
-  1. python step-0-calibration.py              # processes N images for calibration, saved in output folder;
-                                             # the HTML review interface is generated automatically
-     Open in browser, edit metadata to match your style, click Export Decisions and save in exports subfolder of output folder
-     (python step-0-calibration.py --review regenerates the review interface if needed)
-  2. python step-0-calibration.py --export     # writes collection-examples.txt (with style guide) to images folder
-     Optional: edit the style guide at the bottom of collection-examples.txt as you see fit.
-     
-     Final: when you run the full workflow, starting either with the run script or step 1 only, 
-     Step 1 sends to LLM: 
-     prompt + collection context + collection-examples.txt + images (N at a time)
+Workflow:
+  1. python step-0-calibration.py     # analyze sample; HTML review is generated automatically
+     Edit metadata in the browser, then Export Decisions to the exports subfolder.
+  2. python step-0-calibration.py --export   # write collection-examples.txt to the images folder
+     Step 1 then includes it in every request. Edit its style guide as you see fit.
 
-Usage:
-    python step-0-calibration.py                      # analyze sample images (folder and # set in config)
-    python step-0-calibration.py --count 10           # analyze 10 images
-    python step-0-calibration.py --folder my-collection --count 5
-    python step-0-calibration.py --review             # regenerate HTML review for most recent calibration run
-    python step-0-calibration.py --review --folder output_folders/my-calibration-run
-    python step-0-calibration.py --export             # write collection-examples.txt after review
-    python step-0-calibration.py --export --folder output_folders/my-calibration-run
+Options: --count N, --folder <name>
+To regenerate the HTML review: python step-5-html-review.py --folder <output-folder-path>
 """
 
 import os
@@ -76,32 +63,8 @@ def _load_html_review():
     return m
 
 
-def _generate_html_review(folder_path=None):
-    """Generate an HTML review interface for the most recent (or specified) calibration folder."""
-    base_output_dir = os.path.join(script_dir, "output_folders")
-
-    if folder_path:
-        if not os.path.exists(folder_path):
-            print(f"Error: Folder not found: {folder_path}")
-            return 1
-    else:
-        if not os.path.exists(base_output_dir):
-            print("No output_folders directory found.")
-            return 1
-        calibration_folders = sorted(
-            [
-                os.path.join(base_output_dir, d)
-                for d in os.listdir(base_output_dir)
-                if "_calibration_" in d and os.path.isdir(os.path.join(base_output_dir, d))
-            ],
-            key=os.path.getmtime,
-            reverse=True,
-        )
-        if not calibration_folders:
-            print("No calibration output folders found. Run step-0-calibration.py first.")
-            return 1
-        folder_path = calibration_folders[0]
-
+def _generate_html_review(folder_path):
+    """Generate an HTML review interface for a calibration output folder."""
     folder_name = os.path.basename(folder_path)
     print(f"\nGenerating HTML review for: {folder_name}")
 
@@ -257,20 +220,14 @@ Workflow:
     parser.add_argument('--export', '-e', action='store_true',
                         help='Export archivist decisions as collection-examples.txt. '
                              'Run this after completing the HTML review.')
-    parser.add_argument('--review', '-r', action='store_true',
-                        help='Regenerate the HTML review interface for the most recent calibration run '
-                             '(created automatically after a calibration run).')
     parser.add_argument('--count', '-n', type=int, default=None,
                         help=f'Number of sample images to process (default: CALIBRATION_COUNT={CALIBRATION_COUNT} from config.py)')
     parser.add_argument('--folder', '-f', default=None,
-                        help='Image folder name (step 1) or output folder path (--export / --review)')
+                        help='Image folder name (step 1) or output folder path (--export)')
     args = parser.parse_args()
 
     if args.export:
         return _export_calibration(args.folder)
-
-    if args.review:
-        return _generate_html_review(args.folder)
 
     cfg = get_step1_config(args.folder)
     provider = cfg['provider']
@@ -384,7 +341,7 @@ Workflow:
     review_result = _generate_html_review(output_dir)
     if review_result != 0:
         print(f"\nHTML review generation failed — you can retry with:")
-        print(f"  python step-0-calibration.py --review")
+        print(f"  python step-5-html-review.py --folder output_folders/{folder_name}")
         return 1
 
     return 0 if not issues else 1
