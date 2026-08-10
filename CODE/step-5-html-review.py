@@ -712,6 +712,45 @@ class HTMLReviewBuilder:
             color: #888;
         }
         .other-terms-grid .vocab-term .term-btn { text-decoration: none; }
+        .name-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .name-modal-overlay.active { display: flex; }
+        .name-modal {
+            background: #fff;
+            border-radius: 8px;
+            padding: 30px 34px;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+        }
+        .name-modal h2 { margin: 0 0 8px; font-size: 1.25rem; color: #2c3e50; }
+        .name-modal p { margin: 0 0 18px; color: #555; }
+        .name-modal input[type="text"] {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+            margin-bottom: 16px;
+        }
+        .name-modal-actions { text-align: right; }
+        .name-modal button {
+            background: #2c3e50;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 9px 22px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        .name-modal button:hover { background: #1a252f; }
         """
 
     def get_javascript(self):
@@ -751,15 +790,40 @@ class HTMLReviewBuilder:
             return keys;
         }}
 
-        function promptForReviewerName() {{
-            let reviewerName = getStorage('reviewer-name', null);
-            if (!reviewerName) {{
-                reviewerName = prompt('Welcome! Please enter your name (this will be saved for this review session):');
-                if (reviewerName && reviewerName.trim()) {{
-                    setStorage('reviewer-name', reviewerName.trim());
-                }}
+        function showNameModal(callback) {{
+            let overlay = document.getElementById('name-modal-overlay');
+            if (!overlay) {{
+                overlay = document.createElement('div');
+                overlay.id = 'name-modal-overlay';
+                overlay.className = 'name-modal-overlay';
+                overlay.innerHTML =
+                    '<div class="name-modal">' +
+                    '<h2>Welcome!</h2>' +
+                    '<p>Please enter your name &mdash; it will be saved for this review session.</p>' +
+                    '<input type="text" id="name-modal-input" autocomplete="name">' +
+                    '<div class="name-modal-actions"><button id="name-modal-submit">Continue</button></div>' +
+                    '</div>';
+                document.body.appendChild(overlay);
             }}
-            return reviewerName;
+            const input = document.getElementById('name-modal-input');
+            const submitBtn = document.getElementById('name-modal-submit');
+            overlay.classList.add('active');
+            input.focus();
+            const submit = () => {{
+                const name = input.value.trim();
+                if (!name) {{ input.focus(); return; }}
+                setStorage('reviewer-name', name);
+                overlay.classList.remove('active');
+                if (callback) callback(name);
+            }};
+            submitBtn.onclick = submit;
+            input.onkeydown = (e) => {{ if (e.key === 'Enter') submit(); }};
+        }}
+
+        function promptForReviewerName() {{
+            if (!getStorage('reviewer-name', null)) {{
+                showNameModal(null);
+            }}
         }}
 
         function autoMarkReviewed(recordId) {{
@@ -1474,14 +1538,11 @@ class HTMLReviewBuilder:
         }}
 
         function exportDecisions() {{
-            let archivistName = getStorage('reviewer-name', null);
+            const archivistName = getStorage('reviewer-name', null);
             if (!archivistName) {{
-                archivistName = prompt('Enter your name for the export:');
-                if (archivistName && archivistName.trim()) {{
-                    setStorage('reviewer-name', archivistName.trim());
-                }}
+                showNameModal(() => exportDecisions());
+                return;
             }}
-            if (!archivistName) return;
 
             const totalRecords = parseInt(document.body.dataset.totalRecords || '0');
             const decisions = [];

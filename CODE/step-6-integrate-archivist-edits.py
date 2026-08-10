@@ -2074,27 +2074,17 @@ class ArchivistEditsIntegrator:
         rest = img_path[idx + len(marker):]
         return rest.split('/')[0] or None
 
-    def _format_calibration_field(self, label, orig, final, is_first):
-        """Format one field for collection-examples.txt.
-
-        Example 1 always shows Original + Edited (even when identical).
-        Later examples show 'Field: value' for unchanged fields and
-        'Field (edited): / Original: / Edited:' only when the value changed.
-        """
-        orig = (str(orig) if orig else '').strip() or '[Not Visible]'
-        final = (str(final) if final else '').strip() or '[Not Visible]'
-        if is_first:
-            return [f"{label}:", f"  Original: {orig}", f"  Edited: {final}"]
-        if orig == final:
-            return [f"{label}: {final}"]
-        return [f"{label} (edited):", f"  Original: {orig}", f"  Edited: {final}"]
+    @staticmethod
+    def _norm_calibration_value(value):
+        """Normalize a field value for collection-examples.txt."""
+        return (str(value) if value else '').strip() or '[Not Visible]'
 
     def export_calibration_examples(self, image_folders_base: str):
         """Write collection-examples.txt to the image folder from reviewed calibration results.
 
-        Example 1 shows Original + Edited for every field so the AI can see the
-        full correction signal. Subsequent examples only highlight changed fields
-        (unchanged fields are shown as a single 'Field: value' line).
+        Each example shows the complete original AI output, followed by an
+        ARCHIVIST CHANGES section listing only the fields the archivist edited
+        (with their corrected values).
 
         Args:
             image_folders_base: Path to the image_folders directory (CODE/image_folders/).
@@ -2140,7 +2130,6 @@ class ArchivistEditsIntegrator:
             img_filename = os.path.basename(img_path)
             edits = decision.get('edits', {})
             term_decisions = decision.get('term_decisions', {})
-            is_first = (i == 1)
 
             def _get_final_text(field_key, default=""):
                 val = analysis.get(field_key, default)
@@ -2208,9 +2197,16 @@ class ArchivistEditsIntegrator:
                 ("Content Warning", orig_cw, final_cw),
             ]
 
-            lines += ["---", "", f"EXAMPLE {i}", f"Image: {img_filename}", ""]
+            lines += ["---", "", f"EXAMPLE {i}", f"Image: {img_filename}", "", "ORIGINAL AI OUTPUT"]
+            changes = []
             for label, orig, final in field_specs:
-                lines += self._format_calibration_field(label, orig, final, is_first)
+                orig = self._norm_calibration_value(orig)
+                final = self._norm_calibration_value(final)
+                lines.append(f"{label}: {orig}")
+                if final != orig:
+                    changes.append(f"{label}: {final}")
+            lines += ["", "ARCHIVIST CHANGES"]
+            lines += changes if changes else ["None — approved as-is."]
             lines.append("")
 
         try:
