@@ -659,10 +659,12 @@ class ArchivistEditsIntegrator:
             if not isinstance(existing_subjects, list):
                 existing_subjects = [existing_subjects] if existing_subjects else []
 
+            existing_lower = {str(s).strip().lower() for s in existing_subjects}
             for subj in custom_topics:
                 label = subj.get('label', '')
-                if label and label not in existing_subjects:
+                if label and label.strip().lower() not in existing_lower:
                     existing_subjects.append(label)
+                    existing_lower.add(label.strip().lower())
                     self.stats['topics_custom_added'] += 1
 
                     self.edit_history.append({
@@ -2177,6 +2179,15 @@ class ArchivistEditsIntegrator:
                 t for j, t in enumerate(final_topics_raw)
                 if term_decisions.get(f"topic-{j}", 'approved') != 'rejected'
             ]
+            # Include archivist-added custom topics — these live in the decision,
+            # not in analysis['topics'], so the export flow must merge them here
+            # (the integrate flow does this via apply_custom_terms()).
+            final_topics_lower = {str(t).strip().lower() for t in final_topics_list}
+            for subj in decision.get('custom_topics', []):
+                label = subj.get('label', '') if isinstance(subj, dict) else str(subj)
+                if label and label.strip().lower() not in final_topics_lower:
+                    final_topics_list.append(label)
+                    final_topics_lower.add(label.strip().lower())
             final_topics = _fmt_list(final_topics_list)
             final_date = str(_get_final_text('date_on_drawing') or '')
             final_sheet = str(_get_final_text('sheet_info') or '')

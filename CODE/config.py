@@ -10,7 +10,7 @@ Please note that output folder name will be based on the model used in step 1
 # =============================================================================
 # Option 1: Process a SINGLE folder
 # Set IMAGE_FOLDER to process just one collection
-IMAGE_FOLDER = "charles-steven-Dilbeck"
+IMAGE_FOLDER = "james-riely-gordon"
 
 # Option 2: Process MULTIPLE folders
 # Set IMAGE_FOLDERS to a list of folder names to process them all sequentially
@@ -246,7 +246,7 @@ MEDIUM_TERMS = [
     {'label': 'pencil (marking material)', 'uri': 'http://vocab.getty.edu/aat/300410335', 'source': 'Getty AAT'},
     {'label': 'colored pencils',           'uri': 'http://vocab.getty.edu/aat/300022441', 'source': 'Getty AAT'},
     {'label': 'charcoal (material)',       'uri': 'http://vocab.getty.edu/aat/300012862', 'source': 'Getty AAT'},
-    {'label': 'crayon',                    'uri': '',                                      'source': 'Getty AAT'},  # verify URI
+    {'label': 'crayon',                    'uri': 'http://vocab.getty.edu/aat/300022415', 'source': 'Getty AAT'},
     {'label': 'watercolor (paint)',        'uri': 'http://vocab.getty.edu/aat/300015045', 'source': 'Getty AAT'},
     {'label': 'gouache (paint)',           'uri': 'http://vocab.getty.edu/aat/300070114', 'source': 'Getty AAT'},
     {'label': 'wash (material)',           'uri': 'http://vocab.getty.edu/aat/300011051', 'source': 'Getty AAT'},
