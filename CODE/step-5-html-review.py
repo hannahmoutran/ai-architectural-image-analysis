@@ -408,7 +408,6 @@ class HTMLReviewBuilder:
         .vocab-term-source.lcsh { background: #007bff; }
         .vocab-term-source.fast { background: #28a745; }
         .vocab-term-source.aat { background: #dc3545; }
-        .vocab-term-source.tgn { background: #6f42c1; }
 
         .term-actions {
             display: flex;
@@ -1829,7 +1828,7 @@ class HTMLReviewBuilder:
                 selected_labels.add(term.get('label', '').lower())
 
             # Group by source
-            sources = {'LCSH': [], 'FAST': [], 'Getty AAT': [], 'Getty TGN': []}
+            sources = {'LCSH': [], 'FAST': [], 'Getty AAT': []}
 
             for orig_term, matches in vocab_results.items():
                 for match in matches:

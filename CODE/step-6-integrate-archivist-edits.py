@@ -405,7 +405,7 @@ class ArchivistEditsIntegrator:
                     idx = int(parts[-1])
                     source_class = '-'.join(parts[1:-1])
                     # Map short source class to full source name (matches _get_approved_other_terms)
-                    _source_map = {'lcsh': 'LCSH', 'fast': 'FAST', 'aat': 'Getty AAT', 'tgn': 'Getty TGN'}
+                    _source_map = {'lcsh': 'LCSH', 'fast': 'FAST', 'aat': 'Getty AAT'}
                     source_class_full = _source_map.get(source_class, source_class)
                     vocab_results = analysis.get('vocabulary_search_results', {})
                     selected_labels = {t.get('label', '').lower() for t in analysis.get('final_selected_terms', [])}
@@ -1703,7 +1703,7 @@ class ArchivistEditsIntegrator:
         """Get terms from vocabulary_search_results that were approved via 'other-*' decisions.
 
         The HTML review page presents "other" vocabulary terms organized by source
-        (LCSH, FAST, Getty AAT, Getty TGN) with IDs like 'other-aat-5' or 'other-lcsh-3'.
+        (LCSH, FAST, Getty AAT) with IDs like 'other-aat-5' or 'other-lcsh-3'.
         This method reconstructs that same ordering to look up the approved terms.
 
         Args:
@@ -1727,10 +1727,9 @@ class ArchivistEditsIntegrator:
         source_map = {
             'lcsh': 'LCSH',
             'fast': 'FAST',
-            'aat': 'Getty AAT',
-            'tgn': 'Getty TGN'
+            'aat': 'Getty AAT'
         }
-        sources = {'LCSH': [], 'FAST': [], 'Getty AAT': [], 'Getty TGN': []}
+        sources = {'LCSH': [], 'FAST': [], 'Getty AAT': []}
 
         for orig_term, matches in vocab_results.items():
             for match in matches:
@@ -1762,7 +1761,7 @@ class ArchivistEditsIntegrator:
             if len(parts) != 3:
                 continue
 
-            source_class = parts[1]  # e.g., 'aat', 'lcsh', 'fast', 'tgn'
+            source_class = parts[1]  # e.g., 'aat', 'lcsh', 'fast'
             try:
                 index = int(parts[2])
             except ValueError:

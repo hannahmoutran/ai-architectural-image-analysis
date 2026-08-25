@@ -310,8 +310,8 @@ ArchImagesAI_{collection}_{model}_{date}_Time_{time}/
 
 Terms are sourced from authoritative vocabularies via API:
 - **LCSH** - Library of Congress Subject Headings
-- **FAST** - Faceted Application of Subject Terminology
-- **Getty AAT** - Art & Architecture Thesaurus
+- **FAST** - Faceted Application of Subject Terminology (subjects, names/contributors, geographic, chronological)
+- **Getty AAT** - Art & Architecture Thesaurus (genre and format/media terms)
 
 The AI selects from verified terms rather than generating subject headings, ensuring all terms include proper URIs.
 

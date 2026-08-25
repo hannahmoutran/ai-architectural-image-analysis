@@ -646,7 +646,7 @@ class ArchitecturalDrawingsVocabularyProcessor:
             normalized = re.sub(r'[^a-z\s]', '', label.lower())
             return re.sub(r'\s+', ' ', normalized).strip()
 
-        source_priority = {'Getty AAT': 1, 'LCSH': 2, 'FAST': 3, 'Getty TGN': 4}
+        source_priority = {'Getty AAT': 1, 'LCSH': 2, 'FAST': 3}
         matched_terms = []
 
         for selected_label in selected_labels:

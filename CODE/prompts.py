@@ -161,7 +161,7 @@ DECISION RULES:
 - If a topic has NO genuinely relevant terms, SKIP that entire topic
 - Do not force selections based on partial word matches
 - Better to select fewer accurate terms than many irrelevant ones
-- If multiple terms are exactly the same, select the one with the best source (Getty AAT > LCSH > Getty TGN > FAST)
+- If multiple terms are exactly the same, select the one with the best source (Getty AAT > LCSH > FAST)
 
 AUTHORITY LOOKUP SANITY CHECK:
 You may also be shown authority lookup matches produced by automatic keyword search: contributor names matched to FAST name authority records, geographic entities matched to FAST geographic records, chronological terms generated from the drawing date, and genre terms matched to Getty AAT. These automatic matches can be badly wrong (e.g., a draftsman's initials matched to a completely unrelated organization). Apply a common-sense check to each one:
@@ -176,7 +176,7 @@ Return JSON format:
 "selected_terms": [
     {{
     "label": "Exact label",
-    "source": "LCSH/FAST/Getty AAT/Getty TGN",
+    "source": "LCSH/FAST/Getty AAT",
     "reasoning": "Brief explanation of relevance to the drawing"
     }}
 ],

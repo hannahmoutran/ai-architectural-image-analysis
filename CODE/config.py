@@ -10,13 +10,13 @@ Please note that output folder name will be based on the model used in step 1
 # =============================================================================
 # Option 1: Process a SINGLE folder
 # Set IMAGE_FOLDER to process just one collection
-IMAGE_FOLDER = "james-riely-gordon"
+IMAGE_FOLDER = "charles-steven-dilbeck"
 
 # Option 2: Process MULTIPLE folders
 # Set IMAGE_FOLDERS to a list of folder names to process them all sequentially
 # When IMAGE_FOLDERS is set (not None/empty), it takes precedence over IMAGE_FOLDER
 IMAGE_FOLDERS = None  # e.g., ["collection-1", "collection-2", "collection-3"]
-# IMAGE_FOLDERS = ["alfred-zucker", "charles-steven-Dilbeck", "james-riely-gordon", "ut-buildings"]
+# IMAGE_FOLDERS = ["alfred-zucker", "charles-steven-dilbeck", "james-riely-gordon", "ut-buildings"]
 
 # =============================================================================
 # CALIBRATION CONFIGURATION

@@ -634,13 +634,11 @@ class FASTTermFinder:
         return results
 
 class GettyTermFinder:
-    """Getty Vocabularies term finder (AAT, ULAN, TGN) with broader search strategy and logging."""
-    
+    """Getty AAT term finder with broader search strategy and logging."""
+
     def __init__(self, stats_tracker=None, logs_folder_path=None):
         self.base_urls = {
-            'AAT': 'http://vocabsservices.getty.edu/AATService.asmx/AATGetTermMatch',
-            'ULAN': 'http://vocabsservices.getty.edu/ULANService.asmx/ULANGetTermMatch',
-            'TGN': 'http://vocabsservices.getty.edu/TGNService.asmx/TGNGetTermMatch'
+            'AAT': 'http://vocabsservices.getty.edu/AATService.asmx/AATGetTermMatch'
         }
         self.headers = {
             'User-Agent': 'Python-Getty-Term-Finder/1.0 (Educational/Research Use)'
@@ -798,138 +796,7 @@ class GettyTermFinder:
         
         time.sleep(self.request_delay)
         return results
-    
-    def search_tgn(self, query: str, topic: str = None) -> List[Dict[str, str]]:
-        """Search TGN (Thesaurus of Geographic Names) for terms with broader matching and logging."""
-        cache_key = f"TGN_{query}"
-        from_cache = cache_key in self.cache
-        
-        start_time = time.time()
-        
-        if from_cache:
-            results = self.cache[cache_key]
-            processing_time = time.time() - start_time
-            
-            if self.stats_tracker:
-                self.stats_tracker.record_api_call(
-                    'Getty TGN', topic or query, query, True, processing_time, len(results), from_cache=True
-                )
-            
-            if self.logs_folder_path:
-                log_individual_vocab_response(
-                    self.logs_folder_path, "architectural_drawings_step2", topic or query, 
-                    "Getty TGN", f"{query} (CACHED)", results, processing_time
-                )
-            
-            return results
-        
-        all_results = []
-        error_msg = None
-        
-        try:
-            # Strategy 1: Exact search
-            params = {
-                'name': query,
-                'placetypeid': '',
-                'nationid': ''
-            }
-            
-            resp = requests.get(self.base_urls['TGN'], params=params, headers=self.headers, timeout=10)
-            resp.raise_for_status()
-            
-            root = ET.fromstring(resp.content)
-            
-            # Parse XML response
-            for subject in root.findall('.//Subject'):
-                if len(all_results) >= self.max_results:
-                    break
-                    
-                subject_id = subject.find('Subject_ID')
-                preferred_term = subject.find('Preferred_Term')
-                
-                if subject_id is not None and preferred_term is not None:
-                    all_results.append({
-                        'label': preferred_term.text,
-                        'uri': f"http://vocab.getty.edu/tgn/{subject_id.text}",
-                        'source': 'Getty TGN',
-                        'subject_id': subject_id.text
-                    })
-            
-            # Strategy 2: If no results and contains geographic terms, try broader search
-            if not all_results:
-                geographic_words = ['american', 'southern', 'northern', 'eastern', 'western', 'city', 'state', 'county']
-                query_words = query.lower().split()
-                
-                for word in query_words:
-                    if len(all_results) >= self.max_results:
-                        break
-                        
-                    if word in geographic_words or len(word) > 4:
-                        params_word = {
-                            'name': word,
-                            'placetypeid': '',
-                            'nationid': ''
-                        }
-                        
-                        try:
-                            resp_word = requests.get(self.base_urls['TGN'], params=params_word, headers=self.headers, timeout=10)
-                            resp_word.raise_for_status()
-                            root_word = ET.fromstring(resp_word.content)
-                            
-                            for subject in root_word.findall('.//Subject'):
-                                if len(all_results) >= self.max_results:
-                                    break
-                                    
-                                subject_id = subject.find('Subject_ID')
-                                preferred_term = subject.find('Preferred_Term')
-                                
-                                if subject_id is not None and preferred_term is not None:
-                                    all_results.append({
-                                        'label': preferred_term.text,
-                                        'uri': f"http://vocab.getty.edu/tgn/{subject_id.text}",
-                                        'source': 'Getty TGN',
-                                        'subject_id': subject_id.text
-                                    })
-                        except:
-                            continue
-                        
-                        if all_results:  # Stop after first successful word search
-                            break
-            
-            success = True
-            
-        except Exception as e:
-            error_msg = str(e)
-            success = False
-        
-        processing_time = time.time() - start_time
-        
-        # Remove duplicates and LIMIT TO 3
-        seen_uris = set()
-        unique_results = []
-        for result in all_results:
-            if result['uri'] not in seen_uris and len(unique_results) < self.max_results:
-                unique_results.append(result)
-                seen_uris.add(result['uri'])
-        
-        results = unique_results
-        self.cache[cache_key] = results
-        
-        # Log the API call
-        if self.stats_tracker:
-            self.stats_tracker.record_api_call(
-                'Getty TGN', topic or query, query, success, processing_time, len(results)
-            )
-        
-        if self.logs_folder_path:
-            log_individual_vocab_response(
-                self.logs_folder_path, "architectural_drawings_step2", topic or query, 
-                "Getty TGN", query, results, processing_time, error_msg
-            )
-        
-        time.sleep(self.request_delay)
-        return results
-    
+
     def find_terms(self, topics: List[str]) -> Dict[str, List[Dict[str, str]]]:
         """Find Getty terms for multiple topics."""
         if not topics:
@@ -947,10 +814,8 @@ class GettyTermFinder:
             if topic in results:
                 continue
                 
-            # Search AAT and TGN
-            all_results = []
-            
             # Search AAT (Art & Architecture Thesaurus) only
+            all_results = []
             aat_results = self.search_aat(topic, topic)
             all_results.extend(aat_results)
 
