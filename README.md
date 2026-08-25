@@ -37,7 +37,7 @@ Step 0: CALIBRATION (optional) → Step 1: IMAGE ANALYSIS → Step 1.5: CLEANUP 
 | Step | Script | Purpose |
 |------|--------|---------|
 | **0** | `step-0-calibration.py` | Process a small sample, generate HTML review; archivist corrects it to create few-shot style examples for the full run |
-| **1** | `step-1-architectural-drawings.py` | Extract metadata from images (title, contributors, genre, description, topics, dates, entities) |
+| **1** | `step-1-architectural-drawings.py` | Extract metadata from images (title, sheet info, description, contributors, topics, dates, entities, etc.) |
 | **1.5** | `step-1.5-batch-cleanup.py` | Reprocess failed items from Step 1 |
 | **2** | `step-2-terms.py` | Query controlled vocabulary APIs (LCSH, FAST, Getty AAT) |
 | **3** | `step-3-vocab-selection.py` | AI selects best vocabulary terms from search results |
